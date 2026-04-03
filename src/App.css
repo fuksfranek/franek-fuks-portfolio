@@ -1,0 +1,721 @@
+.shell {
+  --info-side-pad: clamp(0.85rem, 2.3vw, 1.55rem);
+  --info-gap: clamp(0.7rem, 2vw, 1.2rem);
+  --info-top-pad: calc(var(--header-h) + env(safe-area-inset-top) + 0.35rem);
+  --info-bottom-pad: calc(var(--rail-stack-h) + 0.95rem);
+  --info-right-share: 30%;
+  --hint-chip-size: calc(0.73rem + 0.9rem);
+  --hint-chip-bg: rgba(248, 249, 250, 0.72);
+  --hint-chip-border: rgba(255, 255, 255, 0.62);
+  --hint-chip-fg: rgba(16, 22, 31, 0.78);
+  position: relative;
+  min-height: 100svh;
+  /* Allow bottom rail to paint past the initial left inset when scrolling */
+  overflow-x: visible;
+  overflow-y: hidden;
+  background: var(--page-bg);
+  color: var(--text);
+  isolation: isolate;
+}
+
+/* Full-viewport media (behind header + rail) */
+.fullBleed {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: var(--stage-bg);
+  display: flex;
+  gap: 0;
+  padding: 0;
+  transition:
+    padding 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    gap 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.fullBleed::after {
+  content: none;
+}
+
+.stageMediaWrap {
+  flex: 1 1 100%;
+  min-width: 0;
+  border-radius: 0;
+  overflow: hidden;
+  box-shadow: none;
+  transition:
+    flex-basis 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+.stageMedia {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.stageFill {
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+  animation: stageFade 380ms ease;
+}
+
+.projectInfoPanel {
+  flex: 0 0 0%;
+  max-width: 0;
+  min-width: 0;
+  opacity: 0;
+  transform: translate3d(42px, 0, 0);
+  border-radius: 22px;
+  border: 1px solid transparent;
+  background: linear-gradient(170deg, rgba(252, 252, 252, 0.93), rgba(235, 240, 244, 0.9));
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.14);
+  pointer-events: none;
+  overflow: hidden;
+  padding: 0;
+  transition:
+    flex-basis 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    max-width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.24s ease,
+    transform 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    padding 0.32s ease,
+    border-color 0.28s ease;
+}
+
+.projectInfoKicker {
+  margin: 0;
+  font-size: 0.68rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.projectInfoTitle {
+  margin: 0.45rem 0 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(1.22rem, 2.5vw, 1.75rem);
+  letter-spacing: -0.02em;
+  color: var(--text-strong);
+}
+
+.projectInfoBody {
+  margin: 0.9rem 0 0;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.projectFacts {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.projectFact {
+  margin: 0;
+  padding: 0.6rem 0.66rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(16, 22, 31, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.projectFactLabel {
+  font-size: 0.67rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.projectFactValue {
+  font-size: 0.77rem;
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.shell--info .fullBleed {
+  padding: var(--info-top-pad) var(--info-side-pad) var(--info-bottom-pad);
+  gap: var(--info-gap);
+}
+
+.shell--info .stageMediaWrap {
+  flex-basis: calc(100% - var(--info-right-share));
+  border-radius: 22px;
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.18);
+}
+
+.shell--info .projectInfoPanel {
+  flex-basis: var(--info-right-share);
+  max-width: 34rem;
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  border-color: rgba(255, 255, 255, 0.62);
+  pointer-events: auto;
+  padding: clamp(0.95rem, 2.3vw, 1.35rem);
+}
+
+@keyframes stageFade {
+  from {
+    opacity: 0.78;
+    transform: scale(1.01);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Prev/next only between header and project rail (not over UI chrome) */
+.hitOverlay {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: var(--header-h);
+  bottom: var(--rail-stack-h);
+  z-index: 1;
+  display: flex;
+  pointer-events: none;
+}
+
+.shell--info .hitOverlay {
+  left: var(--info-side-pad);
+  right: calc(var(--info-side-pad) + var(--info-right-share) + var(--info-gap));
+  top: var(--info-top-pad);
+  bottom: var(--info-bottom-pad);
+}
+
+.hit {
+  flex: 1;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  cursor: default;
+  pointer-events: auto;
+}
+
+.hitLeft {
+  cursor: w-resize;
+  background: transparent;
+}
+
+.hitRight {
+  cursor: e-resize;
+  background: transparent;
+}
+
+.hit:focus-visible {
+  outline: 2px solid var(--text-strong);
+  outline-offset: -2px;
+}
+
+.topBar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(11rem, 24rem) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(0.45rem, 1.6vw, 1rem);
+  padding: clamp(1rem, 3vw, 1.75rem) clamp(1.25rem, 4vw, 2.5rem);
+  padding-top: calc(clamp(1rem, 3vw, 1.75rem) + env(safe-area-inset-top));
+  pointer-events: none;
+}
+
+.topBar > * {
+  pointer-events: auto;
+}
+
+.identity {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(0.94rem, 2vw, 1.08rem);
+  letter-spacing: -0.01em;
+  color: var(--text-strong);
+  text-shadow: 0 1px 12px rgba(255, 255, 255, 0.7);
+  margin: 0;
+  justify-self: start;
+  white-space: nowrap;
+}
+
+.storyMeter {
+  justify-self: center;
+  width: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.storySegment {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(16, 22, 31, 0.1);
+}
+
+.storySegment--active {
+  width: 24px;
+}
+
+.storyFill {
+  width: 0;
+  height: 100%;
+  display: block;
+  background: rgba(16, 22, 31, 0.86);
+  border-radius: inherit;
+}
+
+.storyFill--done {
+  width: 100%;
+}
+
+.storyFill--active {
+  animation-name: storyFill;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes storyFill {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+.topRight {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.projectTitle {
+  font-size: 0.77rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-shadow: 0 1px 10px rgba(255, 255, 255, 0.7);
+  max-width: min(28vw, 16rem);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.infoButton {
+  border: 1px solid rgba(16, 22, 31, 0.24);
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--text-strong);
+  border-radius: 999px;
+  height: 1.9rem;
+  padding: 0 0.72rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+.infoButton:hover {
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.infoButton:focus-visible {
+  outline: 2px solid var(--text-strong);
+  outline-offset: 3px;
+}
+
+.railWrap {
+  --rail-panel-h: calc(0.75rem + var(--rail-thumb-h) + 2.95rem);
+  --rail-hint-gap: 0.9rem;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--rail-spacer) + env(safe-area-inset-bottom));
+  z-index: 10;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--rail-hint-gap);
+  pointer-events: none;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.railWrap[data-hidden='true'] {
+  transform: translate3d(0, var(--rail-panel-h), 0);
+}
+
+.railWrap > * {
+  pointer-events: auto;
+}
+
+.railWrap[data-hidden='true'] > * {
+  pointer-events: none;
+}
+
+/* Scrollport only: no horizontal padding here (see .railTrack) */
+.rail {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  /* Keeps scroll-snap from pinning the first card to the physical left edge */
+  scroll-padding-inline: var(--rail-spacer);
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  cursor: grab;
+}
+
+.railWrap[data-dragging='true'] .rail {
+  cursor: grabbing;
+  scroll-snap-type: none;
+}
+
+.rail::-webkit-scrollbar {
+  display: none;
+}
+
+.railTrack {
+  --rail-gap: clamp(0.75rem, 2vw, 1.25rem);
+  display: flex;
+  flex-direction: row;
+  gap: var(--rail-gap);
+  width: max-content;
+  max-width: none;
+  padding: 0.75rem var(--rail-spacer) 0;
+  box-sizing: border-box;
+}
+
+.card {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.45rem;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  width: auto;
+  transform-origin: center bottom;
+  transition:
+    transform 0.22s ease,
+    opacity 0.22s ease;
+}
+
+.card--default {
+  opacity: 0.72;
+  transform: scale(0.96);
+}
+
+.card--open {
+  opacity: 1;
+  transform: scale(1);
+  z-index: 1;
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--text-strong);
+  outline-offset: 4px;
+}
+
+.thumb {
+  height: var(--rail-thumb-h);
+  width: auto;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--thumb-bg);
+  position: relative;
+  transition: opacity 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+
+.card--default .thumb {
+  opacity: 0.88;
+}
+
+/* Same height; width follows aspect ratio for a consistent strip */
+.thumb1 {
+  aspect-ratio: 16 / 10;
+}
+
+.thumb2 {
+  aspect-ratio: 3 / 4;
+}
+
+.thumb3 {
+  aspect-ratio: 16 / 9;
+}
+
+.thumb4 {
+  aspect-ratio: 1;
+}
+
+.thumbMedia {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-position: center;
+}
+
+.card--open .thumb {
+  opacity: 1;
+  background: var(--thumb-active-bg);
+  box-shadow:
+    0 0 0 2px var(--card-open-ring),
+    0 6px 24px var(--card-open-shadow),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+
+.cardLabel {
+  font-size: 0.75rem;
+  line-height: 1.3;
+  color: var(--text-muted);
+  letter-spacing: -0.01em;
+  padding: 0 2px;
+  max-width: 12rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-shadow: 0 1px 10px rgba(255, 255, 255, 0.5);
+  transition: color 0.2s ease, font-weight 0.2s ease;
+}
+
+.card--default .cardLabel {
+  font-weight: 400;
+}
+
+.card--open .cardLabel {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.railWrap[data-dragging='true'] .railTrack {
+  user-select: none;
+}
+
+.railWrap[data-dragging='true'] .card--default {
+  transform: scale(0.9);
+  opacity: 0.62;
+}
+
+.railWrap[data-dragging='true'] .card--open {
+  transform: scale(0.94);
+}
+
+.railHint {
+  transform: translate3d(0, 12px, 0);
+  opacity: 0;
+  margin: 0;
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.73rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--hint-chip-fg);
+  background: var(--hint-chip-bg);
+  border: 1px solid var(--hint-chip-border);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+
+.railHint--visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+.customCursor {
+  position: fixed;
+  left: -999px;
+  top: -999px;
+  z-index: 40;
+  width: var(--hint-chip-size);
+  height: var(--hint-chip-size);
+  border-radius: 999px;
+  background: var(--hint-chip-bg);
+  color: var(--hint-chip-fg);
+  border: 1px solid var(--hint-chip-border);
+  display: grid;
+  place-items: center;
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+  opacity: 0;
+  transform: translate3d(-50%, -50%, 0) scale(0.72);
+  transition:
+    width 0.2s ease,
+    height 0.2s ease,
+    border-radius 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+
+.customCursor--visible {
+  opacity: 1;
+  transform: translate3d(-50%, -50%, 0) scale(1);
+}
+
+.customCursor--visible.customCursor--pressed {
+  transform: translate3d(-50%, -50%, 0) scale(0.88);
+}
+
+.customCursor--idle {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.customCursor--proximity {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  opacity: 0;
+  transform: translate3d(-50%, -50%, 0) scale(0.3);
+}
+
+.customCursorIcon {
+  font-size: 0.73rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.customCursor[data-zone='rail'] .customCursorIcon {
+  font-size: 13px;
+}
+
+.customCursor--idle .customCursorIcon,
+.customCursor--proximity .customCursorIcon {
+  opacity: 0;
+  transform: scale(0.4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    transition: none;
+  }
+
+  .stageFill,
+  .projectInfoPanel,
+  .railWrap,
+  .railHint,
+  .customCursor {
+    animation: none;
+    transition: none;
+  }
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 720px) {
+  .topBar {
+    grid-template-columns: minmax(0, 1fr) minmax(8.5rem, 11rem) minmax(0, 1fr);
+    padding-inline: 0.85rem;
+  }
+
+  .identity {
+    font-size: 0.83rem;
+  }
+
+  .storyMeter {
+    gap: 6px;
+  }
+
+  .projectTitle {
+    font-size: 0.66rem;
+    max-width: 6.2rem;
+  }
+
+  .infoButton {
+    height: 1.75rem;
+    padding-inline: 0.58rem;
+    font-size: 0.67rem;
+  }
+
+  .railTrack {
+    --rail-gap: 0.68rem;
+    padding-top: 0.5rem;
+  }
+
+  .cardLabel {
+    max-width: 9.5rem;
+  }
+
+  .railHint {
+    font-size: 0.67rem;
+    white-space: nowrap;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .stageMediaWrap,
+  .hit,
+  .rail,
+  .railWrap[data-dragging='true'] .rail {
+    cursor: none;
+  }
+}
+
+@media (max-width: 980px) {
+  .shell {
+    --info-right-share: 36%;
+  }
+}
+
+@media (max-width: 860px) {
+  .shell--info .fullBleed {
+    flex-direction: column;
+  }
+
+  .shell--info .stageMediaWrap {
+    flex-basis: auto;
+    min-height: 56svh;
+  }
+
+  .shell--info .projectInfoPanel {
+    flex-basis: auto;
+    max-width: none;
+    width: 100%;
+  }
+
+  .shell--info .hitOverlay {
+    display: none;
+  }
+}

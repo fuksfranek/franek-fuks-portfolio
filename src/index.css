@@ -1,0 +1,49 @@
+:root {
+  --page-bg: #e4e3de;
+  --stage-bg: #c8cfd3;
+  --text: #2d3540;
+  --text-strong: #10161f;
+  --text-muted: #5f6b78;
+  --thumb-bg: #bcc7cf;
+  --thumb-active-bg: #f8f9fa;
+  --nav-fab: #ffffff;
+  --card-open-ring: rgba(16, 22, 31, 0.4);
+  --card-open-shadow: rgba(0, 0, 0, 0.12);
+  --font-ui: 'Avenir Next', 'Helvetica Neue', Helvetica, sans-serif;
+  --font-display: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
+
+  /* Layout: full-bleed media + overlapping rail; hit strip avoids header/rail */
+  /* Horizontal margin at the start/end of the project slider (scroll-safe flex spacers) */
+  --rail-spacer: 24px;
+  --rail-thumb-h: 5.75rem;
+  --header-h: clamp(4rem, 11vw, 5.75rem);
+  /* Full height from viewport bottom: 24px inset + rail (top pad + thumb + label block) + safe area */
+  --rail-stack-h: calc(
+    var(--rail-spacer) + env(safe-area-inset-bottom) + 0.75rem + var(--rail-thumb-h) + 2.95rem
+  );
+
+  font-family: var(--font-ui);
+  line-height: 1.45;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: radial-gradient(150% 90% at 12% 2%, #f7f3ea 0%, #dde3e6 46%, #c7ced2 100%);
+}
+
+#root {
+  min-height: 100svh;
+  width: 100%;
+  margin: 0;
+}
