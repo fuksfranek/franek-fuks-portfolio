@@ -1,16 +1,18 @@
 .shell {
+  /* Fixed rem only — no vw/clamp — so column width & type size stay steady while resizing */
   --info-side-pad: var(--space-6);
-  --info-gap: var(--space-6);
-  --info-top-pad: calc(var(--header-h) + env(safe-area-inset-top) + var(--space-2));
+  --info-gap: var(--space-5);
+  --info-panel-w: 20rem;
+  /* Copy fades in after this; inner width is locked so lines don’t reflow — can stay short */
+  --info-content-reveal-delay: 0.18s;
+  --info-top-pad: calc(var(--header-h) + var(--space-2));
   --info-bottom-pad: calc(var(--rail-stack-h) + var(--space-4));
-  --info-right-share: 30%;
   --hint-chip-size: var(--space-7);
   --hint-chip-bg: rgba(248, 249, 250, 0.72);
   --hint-chip-border: rgba(255, 255, 255, 0.62);
   --hint-chip-fg: rgba(16, 22, 31, 0.78);
   position: relative;
   min-height: 100svh;
-  /* Allow bottom rail to paint past the initial left inset when scrolling */
   overflow-x: visible;
   overflow-y: visible;
   background: var(--page-bg);
@@ -23,13 +25,13 @@
   position: fixed;
   inset: 0;
   z-index: 0;
-  background: rgba(255, 255, 255, 1);
+  background: var(--stage-bg);
   display: flex;
   gap: 0;
   padding: 0;
   transition:
-    padding 0.38s cubic-bezier(0.22, 1, 0.36, 1),
-    gap 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+    padding var(--duration-view-resize, 0.56s) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1)),
+    gap var(--duration-view-resize, 0.56s) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1));
 }
 
 .fullBleed::after {
@@ -37,15 +39,15 @@
 }
 
 .stageMediaWrap {
+  position: relative;
   flex: 1 1 100%;
   min-width: 0;
   border-radius: 0;
   overflow: hidden;
   box-shadow: none;
   transition:
-    flex-basis 0.38s cubic-bezier(0.22, 1, 0.36, 1),
-    border-radius 0.3s ease,
-    box-shadow 0.3s ease;
+    flex-basis var(--duration-view-resize, 0.56s) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1)),
+    border-radius var(--duration-view-resize, 0.56s) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1));
 }
 
 .stageMedia {
@@ -60,83 +62,66 @@
   display: block;
   pointer-events: none;
   user-select: none;
-  animation: stageFade 380ms ease;
+  animation: stageFade var(--duration-view, 0.62s) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1));
 }
 
+/* Slides open with the row: flex-basis + max-width; copy fades in later via .projectInfoInner */
 .projectInfoPanel {
-  flex: 0 0 0%;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 0rem;
   max-width: 0;
   min-width: 0;
-  opacity: 0;
-  transform: translate3d(40px, 0, 0);
-  border-radius: 22px;
+  transform: translate3d(42px, 0, 0);
   border: none;
-  background: none;
+  background: transparent;
   box-shadow: none;
   pointer-events: none;
   overflow: hidden;
   padding: 0;
+  box-sizing: border-box;
   transition:
-    flex-basis 0.38s cubic-bezier(0.22, 1, 0.36, 1),
-    max-width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.24s ease,
-    transform 0.38s cubic-bezier(0.22, 1, 0.36, 1),
-    padding 0.32s ease;
+    flex-basis var(--duration-view-resize, 0.56s) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1)),
+    max-width var(--duration-view-resize, 0.56s) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1)),
+    transform var(--duration-view-resize, 0.56s) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1)),
+    padding 0.4s ease;
 }
 
-.projectInfoKicker {
-  margin: 0;
-  font-size: 16px;
-  letter-spacing: 0.13em;
-  text-transform: inherit;
-  color: var(--text-muted);
+/* Width = final column minus padding so wrapping is fixed before fade-in (no line-jump) */
+.projectInfoInner {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: calc(var(--info-panel-w) - 2 * var(--space-5));
+  max-width: calc(var(--info-panel-w) - 2 * var(--space-5));
+  opacity: 0;
+  /* Fast hide on close so copy vanishes before column width animates down */
+  transition: opacity 0.1s ease;
+  transition-delay: 0s;
+}
+
+.shell--info .projectInfoInner {
+  opacity: 1;
+  transition: opacity 0.42s var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1));
+  transition-delay: var(--info-content-reveal-delay);
 }
 
 .projectInfoTitle {
-  margin: var(--space-2) 0 0;
-  font-family: var(--font-display);
+  margin: 0;
   font-weight: 500;
-  font-size: 24px;
+  font-size: 1.125rem;
   letter-spacing: -0.02em;
   color: var(--text-strong);
 }
 
 .projectInfoBody {
-  margin: var(--space-4) 0 0;
-  font-size: 16px;
+  margin: 0.85rem 0 0;
+  font-size: 0.92rem;
   line-height: 1.55;
   color: var(--text);
 }
 
-.projectFacts {
-  margin-top: var(--space-4);
-  display: grid;
-  gap: var(--space-2);
-}
-
-.projectFact {
-  margin: 0;
-  padding: var(--space-3) var(--space-3);
-  border-radius: 10px;
-  background: unset;
-  border: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-
-.projectFactLabel {
-  font-size: 16px;
-  letter-spacing: 0.08em;
-  text-transform: inherit;
-  color: var(--text-muted);
-}
-
-.projectFactValue {
-  font-size: 16px;
-  color: var(--text-strong);
-  font-weight: 500;
+.projectInfoBody + .projectInfoBody {
+  margin-top: 0.65rem;
 }
 
 .shell--info .fullBleed {
@@ -145,18 +130,20 @@
 }
 
 .shell--info .stageMediaWrap {
-  flex-basis: calc(100% - var(--info-right-share));
+  flex: 1 1 0;
+  min-width: 0;
   border-radius: 22px;
   box-shadow: none;
 }
 
 .shell--info .projectInfoPanel {
-  flex-basis: var(--info-right-share);
-  max-width: 34rem;
-  opacity: 1;
+  flex: 0 0 var(--info-panel-w);
+  max-width: var(--info-panel-w);
   transform: translate3d(0, 0, 0);
   pointer-events: auto;
-  padding: clamp(var(--space-3), 2vw, var(--space-5));
+  padding: var(--space-5);
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 @keyframes stageFade {
@@ -170,7 +157,7 @@
   }
 }
 
-/* Prev/next only between header and project rail (not over UI chrome) */
+/* Prev/next: fixed strip; in info mode only over the stage column, not the panel */
 .hitOverlay {
   position: fixed;
   left: 0;
@@ -184,7 +171,7 @@
 
 .shell--info .hitOverlay {
   left: var(--info-side-pad);
-  right: calc(var(--info-side-pad) + var(--info-right-share) + var(--info-gap));
+  right: calc(var(--info-side-pad) + var(--info-panel-w) + var(--info-gap));
   top: var(--info-top-pad);
   bottom: var(--info-bottom-pad);
 }
@@ -222,11 +209,11 @@
   right: 0;
   z-index: 10;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(11rem, 24rem) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: clamp(var(--space-2), 1.6vw, var(--space-4));
-  padding: clamp(var(--space-4), 3vw, var(--space-7)) clamp(var(--space-5), 4vw, var(--space-10));
-  padding-top: calc(clamp(var(--space-4), 3vw, var(--space-7)) + env(safe-area-inset-top));
+  gap: var(--space-3);
+  /* 24px from top (below safe area on notched devices); matches story dots inset from image */
+  padding: calc(var(--space-6) + env(safe-area-inset-top, 0px)) var(--space-6) var(--space-6);
   pointer-events: none;
 }
 
@@ -235,10 +222,6 @@
 }
 
 .identity {
-  font-family: var(--font-display);
-  font-weight: 500;
-  font-size: 24px;
-  letter-spacing: -0.01em;
   color: var(--text-strong);
   margin: 0;
   justify-self: start;
@@ -246,11 +229,26 @@
 }
 
 .storyMeter {
-  justify-self: center;
-  width: auto;
+  position: absolute;
+  left: 50%;
+  /* Info mode: inset from card; default overridden below to align with .topBar */
+  top: var(--space-6);
+  z-index: 2;
+  transform: translateX(-50%);
   display: flex;
+  width: max-content;
+  max-width: min(100% - 2rem, 28rem);
   align-items: center;
-  gap: var(--space-2);
+  justify-content: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+/* Default: vertical center of story dots matches vertical center of header text row */
+.shell:not(.shell--info) .storyMeter {
+  top: calc(
+    env(safe-area-inset-top, 0px) + var(--top-bar-pad-y) + (var(--top-bar-line-h) / 2) - (var(--story-meter-h) / 2)
+  );
 }
 
 .storySegment {
@@ -259,8 +257,11 @@
   flex: 0 0 auto;
   border-radius: 999px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.5);
-  box-shadow: inset 0 0 0 1px rgba(16, 22, 31, 0.1);
+  /* Instagram-style: white @ 30% when not active / empty track */
+  background: rgba(255, 255, 255, 0.3);
+  box-shadow: none;
+  /* Smooth pill grow/shrink when active changes (less snap) */
+  transition: width 0.52s var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1));
 }
 
 .storySegment--active {
@@ -271,7 +272,8 @@
   width: 0;
   height: 100%;
   display: block;
-  background: rgba(16, 22, 31, 0.86);
+  /* Active progress: white @ 100% */
+  background: rgba(255, 255, 255, 1);
   border-radius: inherit;
 }
 
@@ -281,7 +283,8 @@
 
 .storyFill--active {
   animation-name: storyFill;
-  animation-timing-function: linear;
+  /* Same butter curve as layout — soft tail, feels less mechanical than linear */
+  animation-timing-function: var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1));
   animation-fill-mode: forwards;
 }
 
@@ -303,43 +306,20 @@
 }
 
 .projectTitle {
-  font-size: 16px;
-  letter-spacing: 0.02em;
-  text-transform: inherit;
   color: var(--text-muted);
-  max-width: min(28vw, 16rem);
+  max-width: 16rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.infoButton {
-  border: 1px solid rgba(16, 22, 31, 0.24);
-  background: rgba(255, 255, 255, 0.62);
-  color: var(--text-strong);
-  border-radius: 999px;
-  height: 1.9rem;
-  padding: 0 var(--space-3);
-  font-size: 16px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  transition: background-color 0.15s ease, transform 0.15s ease;
-}
-
-.infoButton:hover {
-  background: rgba(255, 255, 255, 0.82);
-}
-
-.infoButton:focus-visible {
-  outline: 2px solid var(--text-strong);
-  outline-offset: 3px;
-}
-
 .railWrap {
-  --rail-panel-h: calc(var(--space-3) + var(--rail-thumb-h));
+  --rail-panel-h: calc(
+    var(--space-3) + var(--rail-thumb-h) + var(--rail-card-label-gap) + var(--rail-card-label-h)
+  );
   --rail-hint-gap: var(--space-4);
   --rail-hidden-shift: calc(var(--rail-panel-h) + var(--rail-hint-gap));
+  --rail-slide-duration: 0.72s;
   position: fixed;
   left: 0;
   right: 0;
@@ -353,7 +333,7 @@
   pointer-events: none;
   transform: translate3d(0, 0, 0);
   will-change: transform;
-  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform var(--rail-slide-duration) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1));
 }
 
 .railWrap[data-hidden='true'] {
@@ -397,7 +377,7 @@
 
 .railWrap[data-hidden='false'] .rail[data-stagger-ready='true'] .card[data-rail-enter='on'] {
   /* `backwards`: “from” keyframe during stagger delay. No `forwards` so open/default scale wins after. */
-  animation: railCardEnter 0.52s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation: railCardEnter 0.58s var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1)) backwards;
   animation-delay: calc(var(--card-stagger, 0) * 46.8ms);
 }
 
@@ -406,7 +386,7 @@
   .railWrap[data-hidden='false'] .card {
     animation: none !important;
     transition:
-      transform 0.38s cubic-bezier(0.34, 1.28, 0.64, 1),
+      transform 0.38s cubic-bezier(0.25, 0.46, 0.45, 0.94),
       opacity 0.28s ease !important;
   }
 }
@@ -465,7 +445,7 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0;
+  gap: var(--rail-card-label-gap);
   background: none;
   border: none;
   padding: 0;
@@ -474,8 +454,8 @@
   width: auto;
   transform-origin: center bottom;
   transition:
-    transform 0.38s cubic-bezier(0.34, 1.28, 0.64, 1),
-    opacity 0.28s ease;
+    transform 0.42s var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1)),
+    opacity 0.32s ease;
 }
 
 .card--default,
@@ -515,9 +495,17 @@
   box-shadow: 0 0 0 2px #fff;
 }
 
-/* Slight scale-down on hover — fine pointers only; off while dragging */
+/* Slight scale-down on hover — fine pointers only; off while dragging.
+   Selectors must match or beat .rail[data-stagger-ready] .card[data-rail-enter] so transform
+   still applies when stagger marks cards as data-rail-enter='off' (higher specificity). */
 @media (hover: hover) and (pointer: fine) {
-  .railWrap:not([data-dragging='true']) .card:hover {
+  .railWrap[data-hidden='false']:not([data-dragging='true']) .rail[data-stagger-ready='false'] .card:hover,
+  .railWrap[data-hidden='false']:not([data-dragging='true'])
+    .rail[data-stagger-ready='true']
+    .card[data-rail-enter='off']:hover,
+  .railWrap[data-hidden='false']:not([data-dragging='true'])
+    .rail[data-stagger-ready='true']
+    .card[data-rail-enter='on']:hover {
     transform: scale(calc(var(--card-rest-scale) * 0.97));
   }
 }
@@ -530,31 +518,17 @@
 }
 
 .cardLabel {
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: 16px;
   margin: 0;
-  font-size: 16px;
-  line-height: 1.3;
-  color: rgba(255, 255, 255, 0.96);
-  letter-spacing: -0.01em;
-  padding: 0;
-  max-width: none;
+  padding: 0 4px;
+  width: 100%;
+  min-width: 0;
+  color: var(--text-strong);
+  text-align: left;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  transition: color 0.2s ease, font-weight 0.2s ease;
-  z-index: 1;
-}
-
-.card--default .cardLabel {
-  font-weight: 500;
-}
-
-.card--open .cardLabel {
-  font-weight: 500;
+  transition: color 0.2s ease;
 }
 
 .railWrap[data-dragging='true'] .railTrack {
@@ -571,22 +545,34 @@
 }
 
 .railHint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
   transform: translate3d(0, 12px, 0);
   opacity: 0;
   margin: 0;
-  padding: var(--space-2) var(--space-3);
-  border-radius: 999px;
-  font-size: 16px;
-  letter-spacing: 0.05em;
-  text-transform: inherit;
-  color: var(--hint-chip-fg);
-  background: var(--hint-chip-bg);
-  border: 1px solid var(--hint-chip-border);
-  backdrop-filter: blur(4px);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
   pointer-events: none;
   transition:
-    opacity 0.16s ease,
-    transform 0.16s ease;
+    opacity 0.22s ease,
+    transform 0.32s var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1));
+}
+
+.railHintChevron {
+  display: flex;
+  color: var(--text-muted);
+}
+
+.railHintChevron svg {
+  display: block;
+}
+
+.railHintLabel {
+  display: block;
 }
 
 .railHint--visible {
@@ -643,15 +629,7 @@
 }
 
 .customCursorIcon {
-  font-size: 16px;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: -0.02em;
   transition: opacity 0.14s ease, transform 0.14s ease;
-}
-
-.customCursor[data-zone='rail'] .customCursorIcon {
-  font-size: 16px;
 }
 
 .customCursor--idle .customCursorIcon,
@@ -661,12 +639,30 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .shell {
+    --info-content-reveal-delay: 0s;
+  }
+
   .card {
     transition: none;
   }
 
+  .fullBleed,
+  .stageMediaWrap {
+    transition: none !important;
+  }
+
+  .storySegment {
+    transition: none;
+  }
+
+  .storyFill--active {
+    animation-timing-function: linear !important;
+  }
+
   .stageFill,
   .projectInfoPanel,
+  .projectInfoInner,
   .railWrap,
   .railHint,
   .customCursor {
@@ -689,27 +685,12 @@
 
 @media (max-width: 720px) {
   .topBar {
-    grid-template-columns: minmax(0, 1fr) minmax(8.5rem, 11rem) minmax(0, 1fr);
-    padding-inline: var(--space-3);
-  }
-
-  .identity {
-    font-size: 24px;
-  }
-
-  .storyMeter {
-    gap: var(--space-2);
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: calc(var(--space-6) + env(safe-area-inset-top, 0px)) var(--space-3) var(--space-6);
   }
 
   .projectTitle {
-    font-size: 16px;
     max-width: 6.2rem;
-  }
-
-  .infoButton {
-    height: 1.75rem;
-    padding-inline: var(--space-2);
-    font-size: 16px;
   }
 
   .cardLabel {
@@ -717,7 +698,6 @@
   }
 
   .railHint {
-    font-size: 16px;
     white-space: nowrap;
   }
 }
@@ -733,24 +713,35 @@
 
 @media (max-width: 980px) {
   .shell {
-    --info-right-share: 36%;
+    --info-panel-w: 18rem;
   }
 }
 
 @media (max-width: 860px) {
   .shell--info .fullBleed {
     flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   .shell--info .stageMediaWrap {
-    flex-basis: auto;
-    min-height: 56svh;
+    flex: 1 1 auto;
+    min-height: min(44svh, 52vh);
+    width: 100%;
   }
 
   .shell--info .projectInfoPanel {
-    flex-basis: auto;
-    max-width: none;
+    flex: 1 1 auto;
+    min-height: 0;
     width: 100%;
+    max-width: none;
+  }
+
+  /* Stacked: panel is full width — let copy follow fluid width */
+  .shell--info .projectInfoInner {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .shell--info .hitOverlay {

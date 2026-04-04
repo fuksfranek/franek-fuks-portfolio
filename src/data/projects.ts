@@ -10,7 +10,13 @@ export type Project = {
   cover: Media
   /** Full-viewport assets when this project is selected */
   gallery: Media[]
+  /** Side panel copy when “info” is open; falls back to defaultProjectDescription */
+  description?: string
 }
+
+/** Used when a project omits `description` (two blocks separated by a blank line → two paragraphs in UI) */
+export const defaultProjectDescription =
+  'Visual direction, pacing, and narrative for this project.\n\nThe stage keeps auto-playing through assets while you inspect context on the side.'
 
 function gallery(project: Omit<Project, 'gallery'> & { gallery?: Media[] }): Project {
   const { gallery: g, ...rest } = project
@@ -22,6 +28,38 @@ function gallery(project: Omit<Project, 'gallery'> & { gallery?: Media[] }): Pro
 
 /** Replace URLs and labels with your real projects; add/remove entries as needed */
 export const projects: Project[] = [
+  gallery({
+    id: 'one-way',
+    label: 'One-way',
+    description:
+      'One-way follows a single direction through image, type, and rhythm so the piece reads as one continuous gesture rather than isolated frames. The work grew out of print and motion studies that were folded into a single narrative arc.\n\nColor, scale, and pacing were adjusted until each beat felt inevitable. The gallery mirrors that progression—full-screen, automatic, and meant to be watched in order as much as browsed.',
+    cover: {
+      kind: 'image',
+      src: '/images/projects/one-way/cover/2.jpg',
+      alt: 'One-way cover',
+    },
+    gallery: [
+      { kind: 'image', src: '/images/projects/one-way/gallery/1.jpg', alt: 'One-way frame 01' },
+      { kind: 'image', src: '/images/projects/one-way/gallery/3.jpg', alt: 'One-way frame 03' },
+      { kind: 'image', src: '/images/projects/one-way/gallery/4.jpg', alt: 'One-way frame 04' },
+      { kind: 'image', src: '/images/projects/one-way/gallery/5.jpg', alt: 'One-way frame 05' },
+      { kind: 'image', src: '/images/projects/one-way/gallery/6.jpg', alt: 'One-way frame 06' },
+      { kind: 'image', src: '/images/projects/one-way/gallery/7.jpg', alt: 'One-way frame 07' },
+      { kind: 'image', src: '/images/projects/one-way/gallery/8.jpg', alt: 'One-way frame 08' },
+      { kind: 'image', src: '/images/projects/one-way/gallery/9.jpg', alt: 'One-way frame 09' },
+      { kind: 'image', src: '/images/projects/one-way/gallery/10.jpg', alt: 'One-way frame 10' },
+      { kind: 'image', src: '/images/projects/one-way/gallery/11.jpg', alt: 'One-way frame 11' },
+      { kind: 'image', src: '/images/projects/one-way/gallery/12.jpg', alt: 'One-way frame 12' },
+      { kind: 'image', src: '/images/projects/one-way/gallery/13.jpg', alt: 'One-way frame 13' },
+      { kind: 'image', src: '/images/projects/one-way/gallery/14.jpg', alt: 'One-way frame 14' },
+      { kind: 'image', src: '/images/projects/one-way/gallery/Untitled-1.jpg', alt: 'One-way frame 15' },
+      {
+        kind: 'video',
+        src: '/images/projects/one-way/video/Screen%20Recording%202025-06-21%20at%2021.00.10.mov',
+        poster: '/images/projects/one-way/cover/2.jpg',
+      },
+    ],
+  }),
   gallery({
     id: 'website-co',
     label: 'Website for Company',

@@ -8,7 +8,7 @@ import {
   useState,
 } from 'react'
 import type { Media } from './data/projects'
-import { projects } from './data/projects'
+import { defaultProjectDescription, projects } from './data/projects'
 import './App.css'
 
 const USE_COLOR_MEDIA_PLACEHOLDERS = true
@@ -20,6 +20,26 @@ function hashString(value: string) {
     hash |= 0
   }
   return Math.abs(hash)
+}
+
+/** Prefer `\n\n` in copy; otherwise split after first “. ” or at a mid-word boundary */
+function splitProjectDescription(raw: string): [string, string] {
+  const t = raw.trim()
+  const blocks = t
+    .split(/\n\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (blocks.length >= 2) {
+    return [blocks[0], blocks.slice(1).join('\n\n')]
+  }
+  const dot = t.indexOf('. ')
+  if (dot !== -1 && dot < t.length - 2) {
+    return [t.slice(0, dot + 1).trim(), t.slice(dot + 2).trim()]
+  }
+  const half = Math.floor(t.length / 2)
+  const sp = t.lastIndexOf(' ', half + 40)
+  if (sp > 8) return [t.slice(0, sp).trim(), t.slice(sp + 1).trim()]
+  return [t, '']
 }
 
 function mediaPlaceholderColor(media: Media) {
@@ -457,14 +477,6 @@ export default function App() {
     resetRailPointer()
   }, [cancelRailGapDynamics, cancelRailMomentum, resetRailPointer])
 
-  const toggleInfo = useCallback(() => {
-    if (isInfoOpen) {
-      closeInfo()
-      return
-    }
-    openInfo()
-  }, [closeInfo, isInfoOpen, openInfo])
-
   useEffect(() => {
     cursorUiRef.current = cursorUi
   }, [cursorUi])
@@ -609,12 +621,6 @@ export default function App() {
         return
       }
 
-      if (e.key.toLowerCase() === 'i') {
-        e.preventDefault()
-        toggleInfo()
-        return
-      }
-
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
         goPrevProject()
@@ -623,10 +629,10 @@ export default function App() {
         goNextProject()
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
-        showRail()
+        openInfo()
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
-        hideRail()
+        closeInfo()
       } else if (e.key === 'Home') {
         e.preventDefault()
         selectProject(0)
@@ -637,7 +643,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [closeInfo, goPrevProject, goNextProject, hideRail, isInfoOpen, selectProject, showRail, toggleInfo])
+  }, [closeInfo, goPrevProject, goNextProject, isInfoOpen, openInfo, selectProject])
 
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
@@ -652,7 +658,7 @@ export default function App() {
         !!targetNode &&
         (stageWrapRef.current?.contains(targetNode) === true || stageHitRef.current?.contains(targetNode) === true)
 
-      if (isOnRail && !isRailHidden) {
+      if (isOnRail && isInfoOpen) {
         const horizontalIntent =
           (ax >= RAIL_WHEEL_X_MIN && ax >= ay * RAIL_HORIZONTAL_RATIO) ||
           (e.shiftKey && ay >= RAIL_WHEEL_X_MIN)
@@ -702,18 +708,14 @@ export default function App() {
 
       wheelAcc.current = { y: 0 }
       if (towardShow) {
-        showRail()
-      } else {
-        if (isInfoOpen) {
-          closeInfo({ hideRail: true })
-        } else {
-          hideRail()
-        }
+        openInfo()
+      } else if (isInfoOpen) {
+        closeInfo()
       }
     }
     window.addEventListener('wheel', onWheel, { passive: false })
     return () => window.removeEventListener('wheel', onWheel)
-  }, [closeInfo, feedRailGapWheelImpulse, hideRail, isInfoOpen, isRailHidden, openInfo, showRail])
+  }, [closeInfo, feedRailGapWheelImpulse, isInfoOpen, openInfo])
 
   useEffect(() => {
     const finePointerQuery = window.matchMedia('(hover: hover) and (pointer: fine)')
@@ -849,7 +851,7 @@ export default function App() {
   }, [projectIndex])
 
   useLayoutEffect(() => {
-    if (isRailHidden) {
+    if (!isInfoOpen) {
       setRailStagger({ ready: false, stagger: [], visible: [] })
       return
     }
@@ -897,7 +899,7 @@ export default function App() {
       cancelled = true
       cancelAnimationFrame(raf)
     }
-  }, [isRailHidden, projects.length])
+  }, [isInfoOpen, projects.length])
 
   useEffect(() => {
     if (USE_COLOR_MEDIA_PLACEHOLDERS) return
@@ -933,7 +935,7 @@ export default function App() {
 
   const handleTouchMove = useCallback(
     (e: React.TouchEvent<HTMLElement>) => {
-      if (!isRailHidden || railTouchRevealStarted.current) return
+      if (isInfoOpen || railTouchRevealStarted.current) return
       if (e.touches.length !== 1) return
       const target = e.target as Node
       if (railWrapRef.current?.contains(target)) return
@@ -946,10 +948,10 @@ export default function App() {
       const deltaY = touch.clientY - start.y
       if (deltaY > RAIL_TOUCH_SHOW_PX) {
         railTouchRevealStarted.current = true
-        showRail()
+        openInfo()
       }
     },
-    [isRailHidden, showRail],
+    [isInfoOpen, openInfo],
   )
 
   const handleTouchEnd = useCallback(
@@ -978,22 +980,18 @@ export default function App() {
         }
       } else {
         if (deltaY < 0) {
-          if (isInfoOpen) {
-            closeInfo({ hideRail: true })
-          } else {
-            hideRail()
-          }
+          if (isInfoOpen) closeInfo()
         } else {
-          showRail()
+          openInfo()
         }
       }
     },
-    [closeInfo, hideRail, isInfoOpen, openInfo, showRail],
+    [closeInfo, isInfoOpen, openInfo],
   )
 
   const handleRailPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      if (isRailHidden) return
+      if (!isInfoOpen) return
       if (e.pointerType === 'mouse' && e.button !== 0) return
       const rail = railRef.current
       if (!rail) return
@@ -1009,7 +1007,7 @@ export default function App() {
         velocity: 0,
       }
     },
-    [cancelRailMomentum, isRailHidden],
+    [cancelRailMomentum, isInfoOpen],
   )
 
   const handleRailPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -1079,7 +1077,11 @@ export default function App() {
     return `${project.label} — ${assetIndex + 1} / ${gallery.length}`
   }, [assetIndex, canStep, gallery.length, project.label])
 
-  const projectCode = useMemo(() => project.id.replace(/[-_]/g, ' '), [project.id])
+  const infoDescription = useMemo(
+    () => splitProjectDescription(project.description ?? defaultProjectDescription),
+    [project.description],
+  )
+
   const cursorGlyph = cursorUi.direction === 'left' ? '←' : cursorUi.direction === 'right' ? '→' : '↔'
   const cursorClassName = [
     'customCursor',
@@ -1108,31 +1110,32 @@ export default function App() {
             {asset && (
               <MediaView key={`${project.id}-${assetIndex}`} media={asset} fit="cover" className="stageFill" />
             )}
+            <div className="storyMeter" aria-hidden>
+              {gallery.map((_, i) => {
+                const done = i < assetIndex
+                const active = i === assetIndex
+                return (
+                  <span
+                    key={`${project.id}-story-${i}`}
+                    className={`storySegment ${active ? 'storySegment--active' : ''} ${done ? 'storySegment--done' : ''}`}
+                  >
+                    <span
+                      className={`storyFill ${done ? 'storyFill--done' : ''} ${active ? 'storyFill--active' : ''}`}
+                      style={active ? { animationDuration: `${STORY_DURATION_MS}ms` } : undefined}
+                    />
+                  </span>
+                )
+              })}
+            </div>
           </div>
+
         </section>
 
         <aside id="project-info-panel" className="projectInfoPanel" aria-hidden={!isInfoOpen}>
-          <p className="projectInfoKicker">{projectCode}</p>
-          <h2 className="projectInfoTitle">{project.label}</h2>
-          <p className="projectInfoBody">
-            Visual direction, pacing, and narrative for this project. The stage keeps auto-playing through assets
-            while you inspect context on the side.
-          </p>
-          <div className="projectFacts">
-            <p className="projectFact">
-              <span className="projectFactLabel">Assets</span>
-              <span className="projectFactValue">{gallery.length}</span>
-            </p>
-            <p className="projectFact">
-              <span className="projectFactLabel">Project</span>
-              <span className="projectFactValue">
-                {projectIndex + 1} / {projects.length}
-              </span>
-            </p>
-            <p className="projectFact">
-              <span className="projectFactLabel">Mode</span>
-              <span className="projectFactValue">Auto story loop</span>
-            </p>
+          <div className="projectInfoInner">
+            <h2 className="projectInfoTitle">{project.label}</h2>
+            <p className="projectInfoBody">{infoDescription[0]}</p>
+            {infoDescription[1] ? <p className="projectInfoBody">{infoDescription[1]}</p> : null}
           </div>
         </aside>
       </div>
@@ -1157,48 +1160,30 @@ export default function App() {
       <header className="topBar">
         <p className="identity">Franek Fuks, Designer</p>
 
-        <div className="storyMeter" aria-hidden>
-          {gallery.map((_, i) => {
-            const done = i < assetIndex
-            const active = i === assetIndex
-            return (
-              <span
-                key={`${project.id}-story-${i}`}
-                className={`storySegment ${active ? 'storySegment--active' : ''} ${done ? 'storySegment--done' : ''}`}
-              >
-                <span
-                  className={`storyFill ${done ? 'storyFill--done' : ''} ${active ? 'storyFill--active' : ''}`}
-                  style={active ? { animationDuration: `${STORY_DURATION_MS}ms` } : undefined}
-                />
-              </span>
-            )
-          })}
-        </div>
-
         <div className="topRight">
           <span className="projectTitle">{project.label}</span>
-          <button
-            type="button"
-            className="infoButton"
-            data-cursor-hide="true"
-            aria-label={isInfoOpen ? 'Close information panel' : 'Open information panel'}
-            aria-expanded={isInfoOpen}
-            aria-controls="project-info-panel"
-            onClick={toggleInfo}
-          >
-            {isInfoOpen ? 'Close' : 'Info'}
-          </button>
         </div>
       </header>
 
       <footer
         className="railWrap"
         ref={railWrapRef}
-        data-hidden={isRailHidden}
+        data-hidden={!isInfoOpen}
         data-dragging={isRailDragging}
       >
-        <p className={`railHint ${isRailHidden ? 'railHint--visible' : ''}`} aria-hidden={!isRailHidden}>
-          Swipe up to see projects
+        <p className={`railHint ${!isInfoOpen ? 'railHint--visible' : ''}`} aria-hidden={isInfoOpen}>
+          <span className="railHintChevron" aria-hidden>
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M18 15l-6-6-6 6"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
+          <span className="railHintLabel">swipe up for more</span>
         </p>
         <div
           className="rail"
@@ -1242,8 +1227,8 @@ export default function App() {
                 >
                   <div className="thumb">
                     <MediaView media={p.cover} fit="cover" className="thumbMedia" variant="thumb" />
-                    <span className="cardLabel">{p.label}</span>
                   </div>
+                  <span className="cardLabel">{p.label}</span>
                 </button>
               )
             })}

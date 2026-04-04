@@ -1,6 +1,16 @@
 :root {
-  --page-bg: #e4e3de;
-  --stage-bg: #c8cfd3;
+  --space-1: 0.25rem; /* 4 */
+  --space-2: 0.5rem; /* 8 */
+  --space-3: 0.75rem; /* 12 */
+  --space-4: 1rem; /* 16 */
+  --space-5: 1.25rem; /* 20 */
+  --space-6: 1.5rem; /* 24 */
+  --space-7: 1.75rem; /* 28 */
+  --space-8: 2rem; /* 32 */
+  --space-10: 2.5rem; /* 40 */
+
+  --page-bg: #ffffff;
+  --stage-bg: #ffffff;
   --text: #2d3540;
   --text-strong: #10161f;
   --text-muted: #5f6b78;
@@ -9,21 +19,41 @@
   --nav-fab: #ffffff;
   --card-open-ring: rgba(16, 22, 31, 0.4);
   --card-open-shadow: rgba(0, 0, 0, 0.12);
-  --font-ui: 'Avenir Next', 'Helvetica Neue', Helvetica, sans-serif;
-  --font-display: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
+  --font-ui: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: var(--font-ui);
+  /* Slightly tighter than default for denser UI copy */
+  --line-height: 1.32;
+  /* Damped, springy *feel* with zero overshoot: smooth ease-out tail (no y > 1) */
+  --ease-butter: cubic-bezier(0.17, 0.88, 0.32, 1);
+  --duration-view: 0.62s;
+  /* Layout / stage resize (info panel open/close): snappier than 0.72s */
+  --duration-view-resize: 0.56s;
 
   /* Layout: full-bleed media + overlapping rail; hit strip avoids header/rail */
   /* Horizontal margin at the start/end of the project slider (scroll-safe flex spacers) */
-  --rail-spacer: 24px;
-  --rail-thumb-h: 5.75rem;
-  --header-h: clamp(4rem, 11vw, 5.75rem);
-  /* Full height from viewport bottom: 24px inset + rail (top pad + thumb + label block) + safe area */
+  --rail-spacer: var(--space-6);
+  --rail-thumb-h: clamp(7.5rem, 20vh, 12rem);
+  /* Fixed top bar: matches .topBar padding + identity row (16px × body line-height) */
+  --top-bar-pad-y: var(--space-6);
+  --top-bar-line-h: calc(1rem * var(--line-height));
+  --header-bar-block-h: calc(var(--top-bar-pad-y) + var(--top-bar-line-h) + var(--top-bar-pad-y));
+  --story-meter-h: 24px;
+  /* Distance from viewport top to bottom edge of fixed header (safe area + bar) */
+  --header-h: calc(env(safe-area-inset-top, 0px) + var(--header-bar-block-h));
+  /* Gap under thumb + up to 2 title lines at --line-height */
+  --rail-card-label-gap: 16px;
+  --rail-card-label-h: calc(2em * var(--line-height));
+  /* Full height from viewport bottom: rail track (pad + thumb + gap + title + pad) + safe area */
   --rail-stack-h: calc(
-    var(--rail-spacer) + env(safe-area-inset-bottom) + 0.75rem + var(--rail-thumb-h) + 2.95rem
+    env(safe-area-inset-bottom) + var(--space-4) + var(--rail-thumb-h) + var(--rail-card-label-gap) +
+      var(--rail-card-label-h) + var(--space-6)
   );
 
   font-family: var(--font-ui);
-  line-height: 1.45;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: var(--line-height);
+  letter-spacing: -0.011em;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -36,14 +66,23 @@
   box-sizing: border-box;
 }
 
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
 body {
   margin: 0;
   overflow: hidden;
-  background: radial-gradient(150% 90% at 12% 2%, #f7f3ea 0%, #dde3e6 46%, #c7ced2 100%);
+  font: inherit;
+  background: #ffffff;
 }
 
 #root {
   min-height: 100svh;
   width: 100%;
   margin: 0;
+  font: inherit;
 }
