@@ -1,7 +1,36 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react'
 import type { Media } from './data/projects'
 import { projects } from './data/projects'
 import './App.css'
+
+const USE_COLOR_MEDIA_PLACEHOLDERS = true
+
+function hashString(value: string) {
+  let hash = 0
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(i)
+    hash |= 0
+  }
+  return Math.abs(hash)
+}
+
+function mediaPlaceholderColor(media: Media) {
+  const key =
+    media.kind === 'video' ? `video:${media.src}:${media.poster ?? ''}` : `image:${media.src}:${media.alt}`
+  const hash = hashString(key)
+  const hue = hash % 360
+  const saturation = 58 + (hash % 18)
+  const lightness = 46 + ((hash >> 3) % 18)
+  return `hsl(${hue} ${saturation}% ${lightness}%)`
+}
 
 function MediaView({
   media,
@@ -15,6 +44,10 @@ function MediaView({
   /** Slider cards: show poster still for video instead of playing */
   variant?: 'full' | 'thumb'
 }) {
+  if (USE_COLOR_MEDIA_PLACEHOLDERS) {
+    return <div className={className} style={{ background: mediaPlaceholderColor(media) }} aria-hidden />
+  }
+
   if (media.kind === 'video') {
     if (variant === 'thumb' && media.poster) {
       return (
@@ -54,12 +87,44 @@ function MediaView({
 }
 
 const WHEEL_STEP = 80
+/** Reveal rail on smaller upward wheel delta so motion lines up with the gesture */
+const RAIL_WHEEL_SHOW_EARLY = 32
 const SWIPE_STEP = 42
+/** Reveal rail as soon as swipe-down passes this (same direction as touchend show) */
+const RAIL_TOUCH_SHOW_PX = 28
+const INFO_WHEEL_STEP = 56
 const RAIL_WHEEL_X_MIN = 1.5
 const RAIL_HORIZONTAL_RATIO = 0.65
 const VERTICAL_INTENT_RATIO = 1.12
 const DRAG_CLICK_SUPPRESS_MS = 220
 const DRAG_START_PX = 8
+/** px/ms; release below this uses no inertial scroll */
+const RAIL_MOMENTUM_MIN_VELOCITY = 0.028
+/** Extra carry so flicks feel responsive */
+const RAIL_MOMENTUM_BOOST = 1.22
+/** Per ~16ms frame; used with delta-time for frame-rate independence */
+const RAIL_MOMENTUM_FRICTION = 0.895
+/** EMA blend for pointer velocity samples */
+const RAIL_VELOCITY_SMOOTH = 0.55
+const RAIL_MOMENTUM_STOP = 0.012
+/** Extra space between cards at max intensity (px); smaller = less scroll/layout feedback */
+const RAIL_GAP_MAX_EXTRA_PX = 6
+/** |scroll speed| (px/ms) that reaches ~full extra gap */
+const RAIL_GAP_SPEED_REF = 1.05
+/** Wheel delta magnitude (px) treated as a strong horizontal intent */
+const RAIL_GAP_WHEEL_REF = 92
+/** Blend toward measured speed each scroll sample */
+const RAIL_GAP_SMOOTH = 0.42
+/** Decay while intensity is moderate–high (after input stops) */
+const RAIL_GAP_DECAY = 0.8
+/** Faster decay for the last bit so the strip does not “creep” closed */
+const RAIL_GAP_DECAY_TAIL = 0.66
+/** Below this normalized intensity, snap gap closed (avoids long tail + jitter) */
+const RAIL_GAP_SNAP = 0.058
+/** Wait this long after last feed before decaying */
+const RAIL_GAP_IDLE_MS = 18
+/** Cap insane single-sample speeds from scroll bursts */
+const RAIL_GAP_SPEED_CAP = 5.2
 const STORY_DURATION_MS = 4200
 const CURSOR_IDLE_MS = 1300
 const CURSOR_HIDE_DISTANCE = 68
@@ -75,6 +140,12 @@ type ViewAction =
   | { type: 'prevProject' }
   | { type: 'nextProject' }
   | { type: 'selectProject'; index: number }
+
+type RailStaggerState = {
+  ready: boolean
+  stagger: number[]
+  visible: boolean[]
+}
 
 type CursorZone = 'none' | 'stage' | 'rail'
 type CursorDirection = 'left' | 'right' | 'drag'
@@ -150,7 +221,11 @@ export default function App() {
     assetIndex: 0,
   })
   const [isInfoOpen, setIsInfoOpen] = useState(false)
-  const [isRailHidden, setIsRailHidden] = useState(true)
+  const [railStagger, setRailStagger] = useState<RailStaggerState>({
+    ready: false,
+    stagger: [],
+    visible: [],
+  })
   const [isRailDragging, setIsRailDragging] = useState(false)
   const [isCursorPressed, setIsCursorPressed] = useState(false)
   const [cursorUi, setCursorUi] = useState<CursorUiState>({
@@ -160,7 +235,9 @@ export default function App() {
     proximityHidden: false,
   })
   const wheelAcc = useRef({ y: 0 })
+  const infoWheelAcc = useRef(0)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
+  const railTouchRevealStarted = useRef(false)
   const cursorElRef = useRef<HTMLDivElement>(null)
   const cursorUiRef = useRef<CursorUiState>({
     zone: 'none',
@@ -175,6 +252,21 @@ export default function App() {
     startX: 0,
     startScrollLeft: 0,
     moved: false,
+    lastClientX: 0,
+    lastTime: 0,
+    /** Smoothed d(scrollLeft)/dt in px/ms */
+    velocity: 0,
+  })
+  const railMomentumRaf = useRef<number | null>(null)
+  const railTrackRef = useRef<HTMLDivElement>(null)
+  const railGapSmoothedRef = useRef(0)
+  const railGapRafRef = useRef<number | null>(null)
+  const railGapLastFeedRef = useRef(0)
+  const railScrollSampleRef = useRef({
+    lastLeft: 0,
+    lastT: 0,
+    /** Detect scrollWidth shrink when gap CSS relaxes (ignore clamp-only deltas) */
+    lastScrollWidth: 0,
   })
   const lastRailDragAt = useRef(0)
   const cardRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -209,8 +301,132 @@ export default function App() {
     dispatch({ type: 'selectProject', index })
   }, [])
 
-  const hideRail = useCallback(() => {
-    setIsRailHidden(true)
+  const cancelRailMomentum = useCallback(() => {
+    if (railMomentumRaf.current !== null) {
+      cancelAnimationFrame(railMomentumRaf.current)
+      railMomentumRaf.current = null
+    }
+    railRef.current?.classList.remove('rail--momentum')
+  }, [])
+
+  const cancelRailGapDynamics = useCallback(() => {
+    if (railGapRafRef.current !== null) {
+      cancelAnimationFrame(railGapRafRef.current)
+      railGapRafRef.current = null
+    }
+    railGapSmoothedRef.current = 0
+    railTrackRef.current?.style.setProperty('--rail-gap-extra', '0px')
+  }, [])
+
+  const ensureRailGapDecay = useCallback(() => {
+    if (railGapRafRef.current !== null) return
+    const tick = () => {
+      const now = performance.now()
+      if (now - railGapLastFeedRef.current < RAIL_GAP_IDLE_MS) {
+        railGapRafRef.current = requestAnimationFrame(tick)
+        return
+      }
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        cancelRailGapDynamics()
+        return
+      }
+      const v = railGapSmoothedRef.current
+      let next = v * (v > 0.2 ? RAIL_GAP_DECAY : RAIL_GAP_DECAY_TAIL)
+      if (next < RAIL_GAP_SNAP) next = 0
+      railGapSmoothedRef.current = next
+      const el = railTrackRef.current
+      if (el) {
+        el.style.setProperty('--rail-gap-extra', `${next * RAIL_GAP_MAX_EXTRA_PX}px`)
+      }
+      if (next === 0) {
+        railGapRafRef.current = null
+        return
+      }
+      railGapRafRef.current = requestAnimationFrame(tick)
+    }
+    railGapRafRef.current = requestAnimationFrame(tick)
+  }, [cancelRailGapDynamics])
+
+  const feedRailGapFromScrollSpeed = useCallback(
+    (speedPxPerMs: number) => {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+      const speed = Math.min(RAIL_GAP_SPEED_CAP, Math.abs(speedPxPerMs))
+      const t = Math.min(1, speed / RAIL_GAP_SPEED_REF)
+      const prev = railGapSmoothedRef.current
+      railGapSmoothedRef.current = prev + (t - prev) * RAIL_GAP_SMOOTH
+      railGapLastFeedRef.current = performance.now()
+      const el = railTrackRef.current
+      if (el) {
+        el.style.setProperty('--rail-gap-extra', `${railGapSmoothedRef.current * RAIL_GAP_MAX_EXTRA_PX}px`)
+      }
+      ensureRailGapDecay()
+    },
+    [ensureRailGapDecay],
+  )
+
+  const feedRailGapWheelImpulse = useCallback(
+    (wheelDeltaPx: number) => {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+      const t = Math.min(1, wheelDeltaPx / RAIL_GAP_WHEEL_REF)
+      const prev = railGapSmoothedRef.current
+      railGapSmoothedRef.current = Math.max(prev + (t - prev) * 0.48, t * 0.82)
+      railGapLastFeedRef.current = performance.now()
+      const el = railTrackRef.current
+      if (el) {
+        el.style.setProperty('--rail-gap-extra', `${railGapSmoothedRef.current * RAIL_GAP_MAX_EXTRA_PX}px`)
+      }
+      ensureRailGapDecay()
+    },
+    [ensureRailGapDecay],
+  )
+
+  const startRailMomentum = useCallback(
+    (rail: HTMLDivElement, velocityPxPerMs: number) => {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+      let v = velocityPxPerMs * RAIL_MOMENTUM_BOOST
+      if (Math.abs(v) < RAIL_MOMENTUM_MIN_VELOCITY) return
+
+      cancelRailMomentum()
+      rail.classList.add('rail--momentum')
+      let last = performance.now()
+
+      const maxScroll = () => Math.max(0, rail.scrollWidth - rail.clientWidth)
+
+      const step = (now: number) => {
+        const dt = Math.min(48, now - last)
+        last = now
+        if (dt <= 0) {
+          railMomentumRaf.current = requestAnimationFrame(step)
+          return
+        }
+
+        const m = maxScroll()
+        const prev = rail.scrollLeft
+        let next = prev + v * dt
+        if (next < 0) {
+          next = 0
+          v = 0
+        } else if (next > m) {
+          next = m
+          v = 0
+        } else {
+          v *= Math.pow(RAIL_MOMENTUM_FRICTION, dt / 16)
+        }
+        rail.scrollLeft = next
+
+        if (Math.abs(v) < RAIL_MOMENTUM_STOP) {
+          cancelRailMomentum()
+          return
+        }
+        railMomentumRaf.current = requestAnimationFrame(step)
+      }
+
+      railMomentumRaf.current = requestAnimationFrame(step)
+    },
+    [cancelRailMomentum],
+  )
+
+  const resetRailPointer = useCallback(() => {
     if (!railDrag.current.active) return
     const pointerId = railDrag.current.pointerId
     const rail = railRef.current
@@ -223,17 +439,122 @@ export default function App() {
       startX: 0,
       startScrollLeft: 0,
       moved: false,
+      lastClientX: 0,
+      lastTime: 0,
+      velocity: 0,
     }
     setIsRailDragging(false)
   }, [])
 
-  const showRail = useCallback(() => {
-    setIsRailHidden(false)
+  const openInfo = useCallback(() => {
+    setIsInfoOpen(true)
   }, [])
+
+  const closeInfo = useCallback(() => {
+    setIsInfoOpen(false)
+    cancelRailMomentum()
+    cancelRailGapDynamics()
+    resetRailPointer()
+  }, [cancelRailGapDynamics, cancelRailMomentum, resetRailPointer])
+
+  const toggleInfo = useCallback(() => {
+    if (isInfoOpen) {
+      closeInfo()
+      return
+    }
+    openInfo()
+  }, [closeInfo, isInfoOpen, openInfo])
 
   useEffect(() => {
     cursorUiRef.current = cursorUi
   }, [cursorUi])
+
+  useEffect(
+    () => () => {
+      cancelRailMomentum()
+      cancelRailGapDynamics()
+    },
+    [cancelRailGapDynamics, cancelRailMomentum],
+  )
+
+  useEffect(() => {
+    const rail = railRef.current
+    if (!rail) return
+    const now = performance.now()
+    railScrollSampleRef.current = {
+      lastLeft: rail.scrollLeft,
+      lastT: now,
+      lastScrollWidth: rail.scrollWidth,
+    }
+    const onScroll = () => {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+      const ts = performance.now()
+      const left = rail.scrollLeft
+      const st = railScrollSampleRef.current
+      const dt = ts - st.lastT
+      const d = left - st.lastLeft
+      const scrollWidth = rail.scrollWidth
+      const maxS = Math.max(0, scrollWidth - rail.clientWidth)
+
+      // When gap shrinks, scrollWidth drops and the browser clamps scrollLeft — ignore that delta
+      if (st.lastScrollWidth > 0 && scrollWidth < st.lastScrollWidth - 0.5) {
+        const lost = st.lastScrollWidth - scrollWidth
+        if (Math.abs(d) <= lost + 8 && Math.abs(d) < 28) {
+          st.lastScrollWidth = scrollWidth
+          st.lastLeft = left
+          st.lastT = ts
+          return
+        }
+      }
+      st.lastScrollWidth = scrollWidth
+
+      if (dt < 5 || dt > 95) {
+        st.lastLeft = left
+        st.lastT = ts
+        return
+      }
+
+      const edgePx = 3
+      const atStart = left <= edgePx
+      const atEnd = left >= maxS - edgePx
+      if (atStart || atEnd) {
+        if (Math.abs(d) < 3) {
+          st.lastLeft = left
+          st.lastT = ts
+          return
+        }
+        if (atStart && d < 0) {
+          st.lastLeft = left
+          st.lastT = ts
+          return
+        }
+        if (atEnd && d > 0) {
+          st.lastLeft = left
+          st.lastT = ts
+          return
+        }
+      }
+
+      const speed = Math.abs(d / dt)
+      st.lastLeft = left
+      st.lastT = ts
+      if (speed < 0.022) return
+      feedRailGapFromScrollSpeed(speed)
+    }
+    rail.addEventListener('scroll', onScroll, { passive: true })
+    return () => rail.removeEventListener('scroll', onScroll)
+  }, [feedRailGapFromScrollSpeed])
+
+  useEffect(() => {
+    const rail = railRef.current
+    if (!rail) return
+    const now = performance.now()
+    railScrollSampleRef.current = {
+      lastLeft: rail.scrollLeft,
+      lastT: now,
+      lastScrollWidth: rail.scrollWidth,
+    }
+  }, [projectIndex])
 
   const isNearCursorHideTarget = useCallback((x: number, y: number) => {
     const targets = document.querySelectorAll<HTMLElement>('[data-cursor-hide="true"]')
@@ -247,37 +568,50 @@ export default function App() {
     return false
   }, [])
 
-  const endRailDrag = useCallback((pointerId: number) => {
-    const drag = railDrag.current
-    if (!drag.active || drag.pointerId !== pointerId) return
-    const rail = railRef.current
-    if (rail?.hasPointerCapture(pointerId)) {
-      rail.releasePointerCapture(pointerId)
-    }
-    if (drag.moved) {
-      lastRailDragAt.current = Date.now()
-    }
-    railDrag.current = {
-      active: false,
-      pointerId: -1,
-      startX: 0,
-      startScrollLeft: 0,
-      moved: false,
-    }
-    setIsRailDragging(false)
-  }, [])
+  const endRailDrag = useCallback(
+    (pointerId: number) => {
+      const drag = railDrag.current
+      if (!drag.active || drag.pointerId !== pointerId) return
+      const rail = railRef.current
+      if (rail?.hasPointerCapture(pointerId)) {
+        rail.releasePointerCapture(pointerId)
+      }
+      const releaseVel = drag.moved ? drag.velocity : 0
+      if (drag.moved) {
+        lastRailDragAt.current = Date.now()
+      }
+      railDrag.current = {
+        active: false,
+        pointerId: -1,
+        startX: 0,
+        startScrollLeft: 0,
+        moved: false,
+        lastClientX: 0,
+        lastTime: 0,
+        velocity: 0,
+      }
+      setIsRailDragging(false)
+      if (
+        rail &&
+        Math.abs(releaseVel * RAIL_MOMENTUM_BOOST) >= RAIL_MOMENTUM_MIN_VELOCITY
+      ) {
+        startRailMomentum(rail, releaseVel)
+      }
+    },
+    [startRailMomentum],
+  )
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isInfoOpen) {
         e.preventDefault()
-        setIsInfoOpen(false)
+        closeInfo()
         return
       }
 
       if (e.key.toLowerCase() === 'i') {
         e.preventDefault()
-        setIsInfoOpen((open) => !open)
+        toggleInfo()
         return
       }
 
@@ -303,7 +637,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [goPrevProject, goNextProject, hideRail, isInfoOpen, selectProject, showRail])
+  }, [closeInfo, goPrevProject, goNextProject, hideRail, isInfoOpen, selectProject, showRail, toggleInfo])
 
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
@@ -314,6 +648,9 @@ export default function App() {
 
       const targetNode = e.target instanceof Node ? e.target : null
       const isOnRail = targetNode ? railWrapRef.current?.contains(targetNode) : false
+      const isOnProjectItemsZone =
+        !!targetNode &&
+        (stageWrapRef.current?.contains(targetNode) === true || stageHitRef.current?.contains(targetNode) === true)
 
       if (isOnRail && !isRailHidden) {
         const horizontalIntent =
@@ -323,11 +660,13 @@ export default function App() {
         if (horizontalIntent) {
           const rail = railRef.current
           if (!rail) return
+          feedRailGapWheelImpulse(Math.hypot(ax, ay))
           // Keep native inertial scrolling for trackpads; only convert Shift+wheel.
           if (e.shiftKey && ay > ax) {
             e.preventDefault()
             rail.scrollLeft += py
           }
+          infoWheelAcc.current = 0
           wheelAcc.current = { y: 0 }
           return
         }
@@ -336,23 +675,45 @@ export default function App() {
         if (ay < ax * VERTICAL_INTENT_RATIO) return
       }
 
+      const horizontalIntent = ax > ay
+      if (isOnProjectItemsZone && horizontalIntent) {
+        e.preventDefault()
+        infoWheelAcc.current += px
+        if (Math.abs(infoWheelAcc.current) < INFO_WHEEL_STEP) return
+
+        const towardOpen = infoWheelAcc.current > 0
+        infoWheelAcc.current = 0
+        if (towardOpen && !isInfoOpen) {
+          openInfo()
+        } else if (!towardOpen && isInfoOpen) {
+          closeInfo()
+        }
+        return
+      }
+
       if (ay <= ax * VERTICAL_INTENT_RATIO) return
 
       e.preventDefault()
+      infoWheelAcc.current = 0
       wheelAcc.current.y += py
-      if (Math.abs(wheelAcc.current.y) < WHEEL_STEP) return
-
       const towardShow = wheelAcc.current.y > 0
+      const step = towardShow ? RAIL_WHEEL_SHOW_EARLY : WHEEL_STEP
+      if (Math.abs(wheelAcc.current.y) < step) return
+
       wheelAcc.current = { y: 0 }
       if (towardShow) {
         showRail()
       } else {
-        hideRail()
+        if (isInfoOpen) {
+          closeInfo({ hideRail: true })
+        } else {
+          hideRail()
+        }
       }
     }
     window.addEventListener('wheel', onWheel, { passive: false })
     return () => window.removeEventListener('wheel', onWheel)
-  }, [hideRail, isRailHidden, showRail])
+  }, [closeInfo, feedRailGapWheelImpulse, hideRail, isInfoOpen, isRailHidden, openInfo, showRail])
 
   useEffect(() => {
     const finePointerQuery = window.matchMedia('(hover: hover) and (pointer: fine)')
@@ -487,7 +848,59 @@ export default function App() {
     el.scrollIntoView({ behavior, block: 'nearest', inline: 'center' })
   }, [projectIndex])
 
+  useLayoutEffect(() => {
+    if (isRailHidden) {
+      setRailStagger({ ready: false, stagger: [], visible: [] })
+      return
+    }
+
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const n = projects.length
+      setRailStagger({
+        ready: true,
+        stagger: Array.from({ length: n }, (_, i) => i),
+        visible: Array<boolean>(n).fill(true),
+      })
+      return
+    }
+
+    let cancelled = false
+    const raf = requestAnimationFrame(() => {
+      if (cancelled) return
+      const rail = railRef.current
+      if (!rail) return
+      const railRect = rail.getBoundingClientRect()
+      const n = projects.length
+      const stagger = new Array<number>(n).fill(0)
+      const visible = new Array<boolean>(n).fill(false)
+      const items: { i: number; left: number }[] = []
+
+      for (let i = 0; i < n; i++) {
+        const el = cardRefs.current[i]
+        if (!el) continue
+        const r = el.getBoundingClientRect()
+        const pad = 2
+        if (r.width > 0 && r.right > railRect.left + pad && r.left < railRect.right - pad) {
+          visible[i] = true
+          items.push({ i, left: r.left })
+        }
+      }
+      items.sort((a, b) => a.left - b.left)
+      items.forEach((item, order) => {
+        stagger[item.i] = order
+      })
+
+      setRailStagger({ ready: true, stagger, visible })
+    })
+
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(raf)
+    }
+  }, [isRailHidden, projects.length])
+
   useEffect(() => {
+    if (USE_COLOR_MEDIA_PLACEHOLDERS) return
     const nextAsset = gallery[(assetIndex + 1) % gallery.length]
     const previousAsset = gallery[(assetIndex - 1 + gallery.length) % gallery.length]
     const preload = [nextAsset, previousAsset]
@@ -508,10 +921,36 @@ export default function App() {
 
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLElement>) => {
     if (e.touches.length !== 1) return
-    if (railWrapRef.current?.contains(e.target as Node)) return
+    const target = e.target as Node
+    if (railWrapRef.current?.contains(target)) return
+    const inProjectItemsZone =
+      stageWrapRef.current?.contains(target) === true || stageHitRef.current?.contains(target) === true
+    if (!inProjectItemsZone) return
     const touch = e.touches[0]
     touchStart.current = { x: touch.clientX, y: touch.clientY }
+    railTouchRevealStarted.current = false
   }, [])
+
+  const handleTouchMove = useCallback(
+    (e: React.TouchEvent<HTMLElement>) => {
+      if (!isRailHidden || railTouchRevealStarted.current) return
+      if (e.touches.length !== 1) return
+      const target = e.target as Node
+      if (railWrapRef.current?.contains(target)) return
+      const inProjectItemsZone =
+        stageWrapRef.current?.contains(target) === true || stageHitRef.current?.contains(target) === true
+      if (!inProjectItemsZone) return
+      const start = touchStart.current
+      if (!start) return
+      const touch = e.touches[0]
+      const deltaY = touch.clientY - start.y
+      if (deltaY > RAIL_TOUCH_SHOW_PX) {
+        railTouchRevealStarted.current = true
+        showRail()
+      }
+    },
+    [isRailHidden, showRail],
+  )
 
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent<HTMLElement>) => {
@@ -528,20 +967,28 @@ export default function App() {
       if (Math.max(absX, absY) < SWIPE_STEP) return
 
       if (absX > absY) {
-        if (deltaX < 0) {
-          goNext()
-        } else {
-          goPrev()
+        if (!isInfoOpen && deltaX > SWIPE_STEP) {
+          openInfo()
+          return
+        }
+
+        if (isInfoOpen && deltaX < -SWIPE_STEP) {
+          closeInfo()
+          return
         }
       } else {
         if (deltaY < 0) {
-          hideRail()
+          if (isInfoOpen) {
+            closeInfo({ hideRail: true })
+          } else {
+            hideRail()
+          }
         } else {
           showRail()
         }
       }
     },
-    [goNext, goPrev, hideRail, showRail],
+    [closeInfo, hideRail, isInfoOpen, openInfo, showRail],
   )
 
   const handleRailPointerDown = useCallback(
@@ -550,15 +997,19 @@ export default function App() {
       if (e.pointerType === 'mouse' && e.button !== 0) return
       const rail = railRef.current
       if (!rail) return
+      cancelRailMomentum()
       railDrag.current = {
         active: true,
         pointerId: e.pointerId,
         startX: e.clientX,
         startScrollLeft: rail.scrollLeft,
         moved: false,
+        lastClientX: e.clientX,
+        lastTime: 0,
+        velocity: 0,
       }
     },
-    [isRailHidden],
+    [cancelRailMomentum, isRailHidden],
   )
 
   const handleRailPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -576,7 +1027,21 @@ export default function App() {
       drag.moved = true
       setIsRailDragging(true)
       rail.setPointerCapture(e.pointerId)
+      drag.lastClientX = e.clientX
+      drag.lastTime = performance.now()
+      drag.velocity = 0
+    } else {
+      const now = performance.now()
+      const dt = now - drag.lastTime
+      if (dt > 0 && drag.lastTime > 0) {
+        const inst = -(e.clientX - drag.lastClientX) / dt
+        drag.velocity =
+          RAIL_VELOCITY_SMOOTH * inst + (1 - RAIL_VELOCITY_SMOOTH) * drag.velocity
+      }
+      drag.lastClientX = e.clientX
+      drag.lastTime = now
     }
+
     rail.scrollLeft = drag.startScrollLeft - deltaX
   }, [])
 
@@ -603,6 +1068,9 @@ export default function App() {
       startX: 0,
       startScrollLeft: 0,
       moved: false,
+      lastClientX: 0,
+      lastTime: 0,
+      velocity: 0,
     }
   }, [])
 
@@ -611,7 +1079,7 @@ export default function App() {
     return `${project.label} — ${assetIndex + 1} / ${gallery.length}`
   }, [assetIndex, canStep, gallery.length, project.label])
 
-  const projectCode = useMemo(() => project.id.replace(/[-_]/g, ' ').toUpperCase(), [project.id])
+  const projectCode = useMemo(() => project.id.replace(/[-_]/g, ' '), [project.id])
   const cursorGlyph = cursorUi.direction === 'left' ? '←' : cursorUi.direction === 'right' ? '→' : '↔'
   const cursorClassName = [
     'customCursor',
@@ -627,6 +1095,7 @@ export default function App() {
     <div
       className={`shell ${isInfoOpen ? 'shell--info' : ''}`}
       onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
       <div className="fullBleed">
@@ -715,7 +1184,7 @@ export default function App() {
             aria-label={isInfoOpen ? 'Close information panel' : 'Open information panel'}
             aria-expanded={isInfoOpen}
             aria-controls="project-info-panel"
-            onClick={() => setIsInfoOpen((open) => !open)}
+            onClick={toggleInfo}
           >
             {isInfoOpen ? 'Close' : 'Info'}
           </button>
@@ -734,13 +1203,14 @@ export default function App() {
         <div
           className="rail"
           ref={railRef}
+          data-stagger-ready={railStagger.ready}
           onPointerDown={handleRailPointerDown}
           onPointerMove={handleRailPointerMove}
           onPointerUp={handleRailPointerUp}
           onPointerCancel={handleRailPointerCancel}
           onPointerLeave={handleRailPointerLeave}
         >
-          <div className="railTrack" role="list">
+          <div className="railTrack" ref={railTrackRef} role="list">
             {projects.map((p, i) => {
               const open = i === projectIndex
               return (
@@ -753,6 +1223,15 @@ export default function App() {
                     cardRefs.current[i] = node
                   }}
                   className={`card ${open ? 'card--open' : 'card--default'}`}
+                  data-rail-enter={
+                    railStagger.ready ? (railStagger.visible[i] ? 'on' : 'off') : undefined
+                  }
+                  style={
+                    {
+                      '--card-stagger': railStagger.ready ? railStagger.stagger[i] ?? 0 : 0,
+                      '--card-rest-scale': 0.95,
+                    } as React.CSSProperties
+                  }
                   data-state={open ? 'open' : 'default'}
                   onClick={() => {
                     if (Date.now() - lastRailDragAt.current < DRAG_CLICK_SUPPRESS_MS) return
@@ -761,10 +1240,10 @@ export default function App() {
                   aria-current={open ? 'true' : undefined}
                   aria-label={`${p.label}${open ? ', current project' : ''}`}
                 >
-                  <div className={`thumb thumb${(i % 4) + 1}`}>
+                  <div className="thumb">
                     <MediaView media={p.cover} fit="cover" className="thumbMedia" variant="thumb" />
+                    <span className="cardLabel">{p.label}</span>
                   </div>
-                  <span className="cardLabel">{p.label}</span>
                 </button>
               )
             })}
