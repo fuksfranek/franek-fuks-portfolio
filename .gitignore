@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local checkpoint artifacts
+_checkpoint_extract/
+_checkpoint_handoff_2026-04-04/

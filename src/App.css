@@ -2,15 +2,17 @@
   /* Fixed rem only — no vw/clamp — so column width & type size stay steady while resizing */
   --info-side-pad: var(--space-6);
   --info-gap: var(--space-5);
-  --info-panel-w: 20rem;
+  --info-panel-w: 24rem;
   /* Copy fades in after this; inner width is locked so lines don’t reflow — can stay short */
   --info-content-reveal-delay: 0.18s;
-  --info-top-pad: calc(var(--header-h) + var(--space-2));
-  --info-bottom-pad: calc(var(--rail-stack-h) + var(--space-4));
+  /* 24px from viewport top (not below header); + safe area on notched devices */
+  --info-top-pad: calc(24px + env(safe-area-inset-top, 0px));
+  /* Overridden in .shell--info: flush to project rail (see --info-bottom-pad there) */
+  --info-bottom-pad: var(--rail-stack-h);
   --hint-chip-size: var(--space-7);
-  --hint-chip-bg: rgba(248, 249, 250, 0.72);
-  --hint-chip-border: rgba(255, 255, 255, 0.62);
-  --hint-chip-fg: rgba(16, 22, 31, 0.78);
+  --duration-about-depth: 220ms;
+  /* Match view inset — no soft “fluid” overshoot when returning from About */
+  --ease-about-depth: var(--ease-view-inset);
   position: relative;
   min-height: 100svh;
   overflow-x: visible;
@@ -18,6 +20,23 @@
   background: var(--page-bg);
   color: var(--text);
   isolation: isolate;
+  /* One duration for transform — avoids swapping transition rules when live toggles (reduces end jitter) */
+  --info-rubber-transform-dur: var(--duration-info-rubber-release, 0.45s);
+}
+
+.shell[data-info-rubber-live='true'] {
+  --info-rubber-transform-dur: 0ms;
+}
+
+/* Wrong-way squeeze: longer duration; softer decelerate */
+.shell[data-info-rubber-wrong-release='true'] {
+  --info-rubber-transform-dur: var(--duration-info-rubber-squeeze-wrong, 0.72s);
+  --ease-info-rubber-release: var(--ease-info-rubber-squeeze-wrong, cubic-bezier(0.165, 0.84, 0.44, 1));
+}
+
+/* Correct-direction preview: snappy snap to neutral — ease-out only (duration from inline strain) */
+.shell[data-info-rubber-correct-release='true'] {
+  --ease-info-rubber-release: var(--ease-info-rubber-correct-snap, cubic-bezier(0.165, 0.84, 0.44, 1));
 }
 
 /* Full-viewport media (behind header + rail) */
@@ -27,11 +46,32 @@
   z-index: 0;
   background: var(--stage-bg);
   display: flex;
+  flex-direction: column;
   gap: 0;
   padding: 0;
+  backface-visibility: hidden;
+  transform: translate3d(var(--info-rubber-x, 0px), var(--info-rubber-y, 0px), 0)
+    scaleX(calc(1 + var(--info-rubber-stretch-x, 0)));
+  transition: transform var(--info-rubber-transform-dur) var(--ease-info-rubber-release, cubic-bezier(0.165, 0.84, 0.44, 1));
+}
+
+/* Row + padding live on inner so vertical close rubber can scaleY from top (cards top pinned) */
+.fullBleedInner {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  padding: 0;
+  box-sizing: border-box;
+  backface-visibility: hidden;
+  transform: scaleY(calc(1 + var(--info-rubber-stretch-y, 0)));
+  transform-origin: top center;
   transition:
-    padding var(--duration-view-resize, 0.56s) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1)),
-    gap var(--duration-view-resize, 0.56s) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1));
+    padding var(--duration-stage-info, 0.3s) var(--ease-view-inset, cubic-bezier(0.165, 0.84, 0.44, 1)),
+    gap var(--duration-stage-info, 0.3s) var(--ease-view-inset, cubic-bezier(0.165, 0.84, 0.44, 1)),
+    transform var(--info-rubber-transform-dur) var(--ease-info-rubber-release, cubic-bezier(0.165, 0.84, 0.44, 1));
 }
 
 .fullBleed::after {
@@ -40,14 +80,12 @@
 
 .stageMediaWrap {
   position: relative;
-  flex: 1 1 100%;
+  /* 0% basis with panel + stage — no flex transition here; easing padding + panel only keeps the right edge one smooth motion */
+  flex: 1 1 0;
   min-width: 0;
   border-radius: 0;
   overflow: hidden;
   box-shadow: none;
-  transition:
-    flex-basis var(--duration-view-resize, 0.56s) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1)),
-    border-radius var(--duration-view-resize, 0.56s) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1));
 }
 
 .stageMedia {
@@ -56,23 +94,48 @@
   height: 100%;
 }
 
+/* True squircle clip for main project preview (info layout only); see App.tsx */
+.stageMediaSquircle {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Squircle-aligned stroke: src/SquircleMediaStroke.tsx (same path as @squircle-js/react) */
+
+.squircleMediaStroke {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.squircleMediaStrokeSvg {
+  display: block;
+}
+
 .stageFill {
   width: 100%;
   height: 100%;
   display: block;
   pointer-events: none;
   user-select: none;
-  animation: stageFade var(--duration-view, 0.62s) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1));
+  object-position: center;
+  transform: scale(var(--squircle-media-overscan));
+  transform-origin: center center;
+  animation: stageFade var(--duration-view, 0.62s) var(--ease-butter, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
-/* Slides open with the row: flex-basis + max-width; copy fades in later via .projectInfoInner */
+/* DOM order: panel first = left column in row. Width animates 0 ↔ --info-panel-w; no translate (keeps close/open symmetric). */
 .projectInfoPanel {
   display: flex;
   flex-direction: column;
+  align-self: flex-end;
   flex: 0 0 0rem;
   max-width: 0;
   min-width: 0;
-  transform: translate3d(42px, 0, 0);
   border: none;
   background: transparent;
   box-shadow: none;
@@ -81,10 +144,9 @@
   padding: 0;
   box-sizing: border-box;
   transition:
-    flex-basis var(--duration-view-resize, 0.56s) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1)),
-    max-width var(--duration-view-resize, 0.56s) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1)),
-    transform var(--duration-view-resize, 0.56s) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1)),
-    padding 0.4s ease;
+    flex-basis var(--duration-stage-info, 0.3s) var(--ease-view-inset, cubic-bezier(0.165, 0.84, 0.44, 1)),
+    max-width var(--duration-stage-info, 0.3s) var(--ease-view-inset, cubic-bezier(0.165, 0.84, 0.44, 1)),
+    padding var(--duration-stage-info, 0.3s) var(--ease-view-inset, cubic-bezier(0.165, 0.84, 0.44, 1));
 }
 
 /* Width = final column minus padding so wrapping is fixed before fade-in (no line-jump) */
@@ -94,54 +156,94 @@
   width: calc(var(--info-panel-w) - 2 * var(--space-5));
   max-width: calc(var(--info-panel-w) - 2 * var(--space-5));
   opacity: 0;
-  /* Fast hide on close so copy vanishes before column width animates down */
-  transition: opacity 0.1s ease;
+  transition: opacity var(--duration-stage-info, 0.3s) var(--ease-view-inset, cubic-bezier(0.165, 0.84, 0.44, 1));
   transition-delay: 0s;
 }
 
 .shell--info .projectInfoInner {
   opacity: 1;
-  transition: opacity 0.42s var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1));
+  transition: opacity var(--duration-stage-info, 0.3s) var(--ease-view-inset, cubic-bezier(0.165, 0.84, 0.44, 1));
   transition-delay: var(--info-content-reveal-delay);
 }
 
 .projectInfoTitle {
   margin: 0;
   font-weight: 500;
-  font-size: 1.125rem;
+  font-size: var(--font-size-h3);
+  line-height: var(--line-height-heading);
   letter-spacing: -0.02em;
-  color: var(--text-strong);
+  color: var(--text);
+}
+
+/* Line splits from Pretext — balance would fight measured lines */
+.typographyRevealLine {
+  display: block;
+  margin: 0;
+  overflow-wrap: break-word;
+  word-break: normal;
+  line-break: auto;
 }
 
 .projectInfoBody {
   margin: 0.85rem 0 0;
-  font-size: 0.92rem;
-  line-height: 1.55;
-  color: var(--text);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-body-px);
+  font-weight: 400;
+  color: var(--text-muted);
+  max-width: 37.5rem;
+  overflow-wrap: normal;
+  word-break: normal;
+  line-break: auto;
+  hyphens: none;
+  text-wrap: pretty;
 }
 
 .projectInfoBody + .projectInfoBody {
   margin-top: 0.65rem;
 }
 
+.shell--info {
+  /* Reserve rail height but flush stage to slider: --rail-stack-h includes track top pad; omit it here */
+  --info-bottom-pad: calc(var(--rail-stack-h) - var(--space-6));
+}
+
 .shell--info .fullBleed {
+  /* Horizontal close rubber: pin right edge, stretch row (scaleX) instead of sliding */
+  transform-origin: right center;
+}
+
+.shell--info .fullBleedInner {
   padding: var(--info-top-pad) var(--info-side-pad) var(--info-bottom-pad);
   gap: var(--info-gap);
 }
 
+/* Slow drag on copy: don’t scroll the panel during stretch rubber */
+.shell--info[data-info-rubber-axis='x'][data-info-rubber-live='true'] .projectInfoPanel,
+.shell--info[data-info-rubber-axis='y'][data-info-rubber-live='true'] .projectInfoPanel {
+  touch-action: none;
+}
+
+.shell--info .railTrack {
+  /* No top padding — thumbnails sit flush under the image card */
+  padding-top: 0;
+}
+
+/* Info: panel left, stage right — same DOM order as default row (no flex order swap on .shell--info) */
 .shell--info .stageMediaWrap {
-  flex: 1 1 0;
+  /* flex matches default .stageMediaWrap — squircle radius animates in JS */
   min-width: 0;
-  border-radius: 22px;
+  /* Squircle clip lives on .stageMediaSquircle; outer stays square so corners are not double-rounded */
+  border-radius: 0;
   box-shadow: none;
 }
 
 .shell--info .projectInfoPanel {
   flex: 0 0 var(--info-panel-w);
   max-width: var(--info-panel-w);
-  transform: translate3d(0, 0, 0);
+  max-height: 100%;
   pointer-events: auto;
   padding: var(--space-5);
+  padding-left: 0;
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -149,15 +251,15 @@
 @keyframes stageFade {
   from {
     opacity: 0.78;
-    transform: scale(1.01);
+    transform: scale(calc(var(--squircle-media-overscan) * 1.01));
   }
   to {
     opacity: 1;
-    transform: scale(1);
+    transform: scale(var(--squircle-media-overscan));
   }
 }
 
-/* Prev/next: fixed strip; in info mode only over the stage column, not the panel */
+/* Prev/next: fixed strip; in info mode only over the stage column (right), not the panel */
 .hitOverlay {
   position: fixed;
   left: 0;
@@ -167,11 +269,16 @@
   z-index: 1;
   display: flex;
   pointer-events: none;
+  transition:
+    left var(--duration-stage-info, 0.3s) var(--ease-view-inset, cubic-bezier(0.165, 0.84, 0.44, 1)),
+    right var(--duration-stage-info, 0.3s) var(--ease-view-inset, cubic-bezier(0.165, 0.84, 0.44, 1)),
+    top var(--duration-stage-info, 0.3s) var(--ease-view-inset, cubic-bezier(0.165, 0.84, 0.44, 1)),
+    bottom var(--duration-stage-info, 0.3s) var(--ease-view-inset, cubic-bezier(0.165, 0.84, 0.44, 1));
 }
 
 .shell--info .hitOverlay {
-  left: var(--info-side-pad);
-  right: calc(var(--info-side-pad) + var(--info-panel-w) + var(--info-gap));
+  left: calc(var(--info-side-pad) + var(--info-panel-w) + var(--info-gap));
+  right: var(--info-side-pad);
   top: var(--info-top-pad);
   bottom: var(--info-bottom-pad);
 }
@@ -184,7 +291,7 @@
   border: none;
   background: transparent;
   cursor: default;
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 .hitLeft {
@@ -207,7 +314,7 @@
   top: 0;
   left: 0;
   right: 0;
-  z-index: 10;
+  z-index: 60;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -221,11 +328,326 @@
   pointer-events: auto;
 }
 
+.topBarLead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  min-width: 0;
+}
+
 .identity {
   color: var(--text-strong);
   margin: 0;
-  justify-self: start;
   white-space: nowrap;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-body-px);
+  font-weight: 400;
+}
+
+.identityMeta {
+  margin: 0;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-body-px);
+  font-weight: 400;
+}
+
+.identityMeta--center {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  pointer-events: none;
+}
+
+.identityDots {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  height: auto;
+  padding: 0;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
+  transition: opacity 180ms ease;
+}
+
+.identityIconSwap {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.identityIcon {
+  position: absolute;
+  inset: 0;
+  width: 20px;
+  height: 20px;
+  display: block;
+  stroke: var(--icon-stroke);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition:
+    opacity 220ms ease,
+    transform 260ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.identityDots:hover {
+  opacity: 0.3;
+}
+
+.identityIcon--info {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+
+.identityIcon--close {
+  opacity: 0;
+  transform: rotate(-30deg) scale(0.86);
+}
+
+.identityDots--active .identityIcon--info {
+  opacity: 0;
+  transform: rotate(30deg) scale(0.86);
+}
+
+.identityDots--active .identityIcon--close {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+
+.identityDots--stolen {
+  pointer-events: none;
+}
+
+.identityDots--stolen .identityIconSwap {
+  opacity: 0;
+  transform: scale(0.82);
+  transition:
+    opacity 180ms ease,
+    transform 220ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.aboutOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  opacity: 0;
+  background: var(--page-bg);
+  transition: opacity var(--duration-stage-info, 0.3s) var(--ease-view-inset, cubic-bezier(0.165, 0.84, 0.44, 1));
+}
+
+.aboutOverlay--open {
+  pointer-events: auto;
+  opacity: 1;
+}
+
+.aboutOverlayInner {
+  width: clamp(18rem, 30vw, 34rem);
+  max-width: clamp(18rem, 30vw, 34rem);
+  min-width: 0;
+  margin: 0;
+  padding: calc(var(--header-h) - var(--space-2)) var(--space-6) var(--space-6);
+}
+
+.aboutOverlayBody {
+  margin: var(--space-4) 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-body-px);
+  font-weight: 400;
+}
+
+.aboutOverlayCarouselWrap {
+  position: absolute;
+  left: 50%;
+  top: 54%;
+  transform: translate(-50%, -50%);
+  width: min(56vw, 50rem);
+  display: block;
+  pointer-events: auto;
+}
+
+.aboutCarouselViewport {
+  position: relative;
+  height: min(54svh, 32rem);
+  overflow: visible;
+}
+
+.aboutCarouselSlide {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(33vw, 21rem);
+  aspect-ratio: 3 / 4;
+  margin: 0;
+  box-shadow: none;
+  transform: translate(-50%, -50%)
+    translateX(var(--about-slide-x, 0%))
+    translateY(var(--about-slide-y, 0%))
+    scale(calc(1 - var(--about-slide-abs-offset) * 0.08))
+    rotate(calc(var(--about-slide-offset) * 6deg));
+  /* Depth without filter (GPU-friendly vs animated saturate) */
+  opacity: calc(1 - var(--about-slide-abs-offset) * 0.1);
+  z-index: calc(40 - var(--about-slide-abs-offset));
+  transition:
+    transform 0ms linear,
+    opacity 140ms ease-out;
+  animation: aboutCarouselIntro 700ms var(--ease-butter, cubic-bezier(0.4, 0, 0.2, 1)) both;
+  animation-delay: calc(180ms + var(--about-intro-delay, 0ms));
+}
+
+.aboutCarouselSlide[aria-hidden='true'] {
+  pointer-events: none;
+}
+
+.aboutCarouselSquircle {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.aboutCarouselSlide img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+  user-select: none;
+  transform: scale(var(--squircle-media-overscan));
+  transform-origin: center center;
+}
+
+@keyframes aboutCarouselIntro {
+  0% {
+    transform: translate(-50%, -50%)
+      translateX(0%)
+      translateY(185%)
+      scale(0.84)
+      rotate(0deg);
+    opacity: 0;
+  }
+  58% {
+    transform: translate(-50%, -50%)
+      translateX(calc(var(--about-slide-x, 0%) * 0.4))
+      translateY(calc(-16% + var(--about-slide-y, 0%) * 0.45))
+      scale(calc(0.9 + (1 - var(--about-slide-abs-offset) * 0.08) * 0.1))
+      rotate(calc(var(--about-slide-offset) * 3.2deg));
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%)
+      translateX(var(--about-slide-x, 0%))
+      translateY(var(--about-slide-y, 0%))
+      scale(calc(1 - var(--about-slide-abs-offset) * 0.08))
+      rotate(calc(var(--about-slide-offset) * 6deg));
+    opacity: calc(1 - var(--about-slide-abs-offset) * 0.1);
+  }
+}
+
+.aboutOverlayBody a {
+  color: var(--text-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.aboutOverlayBody a:hover {
+  opacity: 0.85;
+}
+
+.aboutOverlayFooterNote {
+  position: absolute;
+  right: var(--space-4);
+  bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+  width: auto;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-small);
+  line-height: 1.5;
+  font-weight: 400;
+  text-align: right;
+}
+
+.aboutOverlayFooterHint {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-small);
+  line-height: 1.5;
+  font-weight: 400;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* About overlay depth cue: everything underneath scales down slightly.
+ * will-change only while About is open — avoids promoting layers on every idle frame. */
+.fullBleed,
+.hitOverlay,
+.railWrap,
+.customCursor {
+  transform-origin: center center;
+  transition:
+    transform var(--duration-about-depth) var(--ease-about-depth),
+    opacity var(--duration-about-depth) var(--ease-about-depth);
+}
+
+.shell--about .fullBleed,
+.shell--about .hitOverlay,
+.shell--about .railWrap {
+  will-change: transform, opacity;
+  transform: scale(0.982);
+  opacity: 0.92;
+}
+
+.shell--about .customCursor {
+  will-change: transform, opacity;
+  opacity: 0;
+}
+
+.aboutCloseCursor {
+  position: fixed;
+  left: -999px;
+  top: -999px;
+  z-index: 65;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate3d(-50%, -50%, 0) scale(0.86);
+  transition:
+    opacity 220ms ease,
+    transform 260ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.aboutCloseCursor svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  stroke: var(--icon-stroke);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.aboutCloseCursor--visible {
+  opacity: 1;
+  transform: translate3d(-50%, -50%, 0) scale(1);
 }
 
 .storyMeter {
@@ -251,49 +673,56 @@
   );
 }
 
+/*
+ * Instagram-style segments: one pill per slot in the flex row (no overlapping layers).
+ * - Segment width animates 8px → 24px only while active (single reflow; avoids z-fighting).
+ * - Progress inside the pill uses transform scaleX only (GPU).
+ */
 .storySegment {
-  width: 8px;
-  height: 8px;
+  --story-pill-w: 24px;
+  --story-dot-w: 8px;
   flex: 0 0 auto;
-  border-radius: 999px;
+  width: var(--story-dot-w);
+  height: var(--story-dot-w);
+  position: relative;
   overflow: hidden;
-  /* Instagram-style: white @ 30% when not active / empty track */
+  border-radius: 999px;
   background: rgba(255, 255, 255, 0.3);
   box-shadow: none;
-  /* Smooth pill grow/shrink when active changes (less snap) */
-  transition: width 0.52s var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1));
+  transition: width var(--duration-view-resize, 0.42s) var(--ease-butter, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .storySegment--active {
-  width: 24px;
+  width: var(--story-pill-w);
 }
 
 .storyFill {
-  width: 0;
-  height: 100%;
+  position: absolute;
+  inset: 0;
   display: block;
-  /* Active progress: white @ 100% */
   background: rgba(255, 255, 255, 1);
   border-radius: inherit;
+  transform: scaleX(0);
+  transform-origin: left center;
 }
 
 .storyFill--done {
-  width: 100%;
+  transform: scaleX(1);
 }
 
 .storyFill--active {
   animation-name: storyFill;
-  /* Same butter curve as layout — soft tail, feels less mechanical than linear */
-  animation-timing-function: var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1));
+  animation-timing-function: var(--ease-butter, cubic-bezier(0.4, 0, 0.2, 1));
   animation-fill-mode: forwards;
+  will-change: transform;
 }
 
 @keyframes storyFill {
   from {
-    width: 0;
+    transform: scaleX(0);
   }
   to {
-    width: 100%;
+    transform: scaleX(1);
   }
 }
 
@@ -306,11 +735,31 @@
 }
 
 .projectTitle {
+  display: inline-block;
   color: var(--text-muted);
   max-width: 16rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-body-px);
+  font-weight: 400;
+  transform: translate3d(0, 0, 0);
+  transition:
+    opacity 0.26s cubic-bezier(0.33, 0.58, 0.28, 1),
+    transform 0.26s cubic-bezier(0.33, 0.58, 0.28, 1);
+}
+
+.shell--info .projectTitle {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(-0.45rem, 0.32rem, 0);
+}
+
+.shell--about .projectTitle {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(-0.45rem, 0.32rem, 0);
 }
 
 .railWrap {
@@ -318,87 +767,122 @@
     var(--space-3) + var(--rail-thumb-h) + var(--rail-card-label-gap) + var(--rail-card-label-h)
   );
   --rail-hint-gap: var(--space-4);
-  --rail-hidden-shift: calc(var(--rail-panel-h) + var(--rail-hint-gap));
-  --rail-slide-duration: 0.72s;
+  /* Extra space between “swipe up” and cards only (cards stay flush to viewport bottom) */
+  --rail-hint-lift: 24px;
+  --rail-hint-pad: var(--space-5) var(--space-8);
+  /* Fully clear the strip below the fold (+ small buffer so nothing peeks) */
+  --rail-hidden-shift: calc(
+    var(--rail-panel-h) + var(--rail-hint-gap) + var(--rail-hint-lift) + var(--space-4)
+  );
   position: fixed;
   left: 0;
   right: 0;
   bottom: env(safe-area-inset-bottom);
   z-index: 10;
   overflow: visible;
+  pointer-events: none;
+}
+
+/* Whole strip off-screen when info closed; dedicated timing (not rubber --info-rubber-transform-dur) */
+.railWrapSlide {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--rail-hint-gap);
+  width: 100%;
   pointer-events: none;
   transform: translate3d(0, 0, 0);
-  will-change: transform;
-  transition: transform var(--rail-slide-duration) var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1));
+  transition: transform var(--duration-rail-reveal, var(--duration-stage-info, 0.3s))
+    var(--ease-rail-reveal, var(--ease-view-inset, cubic-bezier(0.165, 0.84, 0.44, 1)));
 }
 
-.railWrap[data-hidden='true'] {
+.railWrapSlide[data-hidden='true'] {
   transform: translate3d(0, var(--rail-hidden-shift), 0);
 }
 
-.railWrap > * {
+.railWrapSlide > * {
   pointer-events: auto;
 }
 
-.railWrap[data-hidden='true'] > * {
+.railWrapSlide[data-hidden='true'] > * {
   pointer-events: none;
 }
 
+/* Rubber gesture: matches .fullBleed / shell vars */
+.railWrapRubber {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--rail-hint-gap);
+  width: 100%;
+  transform: translate3d(
+    0,
+    calc(var(--info-rubber-y, 0px) + var(--info-rubber-stretch-rail-y, 0px)),
+    0
+  );
+  transition: transform var(--info-rubber-transform-dur) var(--ease-info-rubber-release, cubic-bezier(0.165, 0.84, 0.44, 1));
+}
+
+/* Info view: remove hint from layout so --info-bottom-pad gaps stage → slider cards only (not hint) */
+.railWrap[data-info-open='true'] .railHint {
+  display: none;
+}
+
 /* --card-rest-scale: rail thumb scale (0.95). Selected: .card--open .thumb white ring. */
+/*
+ * Same start as [data-hidden] cards: rise straight to rest (no overshoot).
+ * Stagger: animation-delay uses --card-stagger from JS.
+ */
 @keyframes railCardEnter {
   from {
-    transform: scale(calc(var(--card-rest-scale) * 0.95));
+    opacity: 0.88;
+    transform: translateY(1.125rem) scale(calc(var(--card-rest-scale) * 0.985));
   }
   to {
-    transform: scale(var(--card-rest-scale));
+    opacity: 1;
+    transform: translateY(0) scale(var(--card-rest-scale));
   }
 }
 
-.railWrap[data-hidden='true'] .card {
+.railWrapSlide[data-hidden='true'] .card {
   animation: none;
   transform: translateY(1.125rem) scale(calc(var(--card-rest-scale) * 0.95));
   transition: none;
 }
 
 /* While measuring, hold rest pose; then only cards intersecting the rail viewport animate, left → right */
-.railWrap[data-hidden='false'] .rail[data-stagger-ready='false'] .card {
+.railWrapSlide[data-hidden='false'] .rail[data-stagger-ready='false'] .card {
   animation: none;
   transform: scale(var(--card-rest-scale));
 }
 
-.railWrap[data-hidden='false'] .rail[data-stagger-ready='true'] .card[data-rail-enter='off'] {
+.railWrapSlide[data-hidden='false'] .rail[data-stagger-ready='true'] .card[data-rail-enter='off'] {
   animation: none;
   transform: scale(var(--card-rest-scale));
 }
 
-.railWrap[data-hidden='false'] .rail[data-stagger-ready='true'] .card[data-rail-enter='on'] {
+.railWrapSlide[data-hidden='false'] .rail[data-stagger-ready='true'] .card[data-rail-enter='on'] {
   /* `backwards`: “from” keyframe during stagger delay. No `forwards` so open/default scale wins after. */
-  animation: railCardEnter 0.58s var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1)) backwards;
-  animation-delay: calc(var(--card-stagger, 0) * 46.8ms);
+  animation: railCardEnter var(--duration-rail-card-enter, 0.38s) var(--ease-butter, cubic-bezier(0.4, 0, 0.2, 1))
+    backwards;
+  animation-delay: calc(var(--card-stagger, 0) * (var(--duration-stage-info, 0.3s) / 6.176));
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .railWrap[data-hidden='true'] .card,
-  .railWrap[data-hidden='false'] .card {
+  .railWrapSlide[data-hidden='true'] .card,
+  .railWrapSlide[data-hidden='false'] .card {
     animation: none !important;
-    transition:
-      transform 0.38s cubic-bezier(0.25, 0.46, 0.45, 0.94),
-      opacity 0.28s ease !important;
   }
 }
 
 /* Scrollport only: no horizontal padding here (see .railTrack) */
 .rail {
+  position: relative;
   width: 100%;
   overflow: visible;
   overflow-x: auto;
   overflow-y: visible;
-  scroll-snap-type: x proximity;
-  /* Inset snap region so first/last cards can center comfortably */
+  scroll-snap-type: none;
   scroll-padding-inline: calc(var(--rail-spacer) + var(--space-3));
   overscroll-behavior-x: contain;
   touch-action: pan-x;
@@ -410,14 +894,22 @@
   cursor: grab;
 }
 
-.railWrap[data-dragging='true'] .rail {
-  cursor: grabbing;
-  scroll-snap-type: none;
+/* Single shared indicator — jumps on curve between cards (see App.tsx WAAPI) */
+.railFloatingDot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 6;
+  width: var(--card-label-dot-size, 10px);
+  height: var(--card-label-dot-size, 10px);
+  border-radius: 50%;
+  background: var(--text-strong);
+  pointer-events: none;
+  will-change: transform;
 }
 
-/* Inertial scroll from pointer release: let the strip glide without snap fighting it */
-.rail.rail--momentum {
-  scroll-snap-type: none;
+.railWrap[data-dragging='true'] .rail {
+  cursor: grabbing;
 }
 
 .rail::-webkit-scrollbar {
@@ -427,20 +919,26 @@
 .railTrack {
   /* Base gap + dynamic extra from scroll speed (set in JS as --rail-gap-extra) */
   --rail-gap-extra: 0px;
-  --rail-gap: calc(var(--space-2) + var(--rail-gap-extra));
+  --rail-gap: calc(14px + var(--rail-gap-extra));
+  position: relative;
   display: flex;
   flex-direction: row;
   gap: var(--rail-gap);
   width: max-content;
   max-width: none;
-  padding: var(--space-4) var(--space-6) var(--space-6);
+  /* Top inset = right inset so scaled cards align evenly from top and viewport right */
+  padding: var(--space-6) var(--space-6) var(--space-6) var(--space-5);
   box-sizing: content-box;
+}
+
+/* Cards stay flex children of .railTrack; wrapper is for role="list" without the absolute dot. */
+.railTrackList {
+  display: contents;
 }
 
 .card {
   --card-rest-scale: 0.95;
   flex: 0 0 auto;
-  scroll-snap-align: center;
   scroll-margin-inline: var(--space-2);
   display: flex;
   flex-direction: column;
@@ -454,8 +952,8 @@
   width: auto;
   transform-origin: center bottom;
   transition:
-    transform 0.42s var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1)),
-    opacity 0.32s ease;
+    transform var(--duration-rail-card-hover, 0.22s) var(--ease-butter, cubic-bezier(0.4, 0, 0.2, 1)),
+    opacity calc(var(--duration-rail-card-hover, 0.22s) * 0.73) ease;
 }
 
 .card--default,
@@ -477,11 +975,11 @@
   height: var(--rail-thumb-h);
   width: auto;
   aspect-ratio: 4 / 3;
-  border-radius: 20px;
-  overflow: hidden;
+  /* Corners: @squircle-js/react Squircle (matches --project-media-radius) */
   border: none;
-  background: #d9d9d9;
+  background: var(--thumb-bg);
   position: relative;
+  overflow: hidden;
   /* Softer stack for non-selected cards */
   box-shadow:
     0 36px 10px 0 rgba(64, 64, 64, 0),
@@ -492,21 +990,28 @@
 }
 
 .card--open .thumb {
-  box-shadow: 0 0 0 2px #fff;
+  box-shadow: 0 0 0 2px var(--rail-open-thumb-ring);
 }
 
-/* Slight scale-down on hover — fine pointers only; off while dragging.
+/* ~5% larger on hover (non-selected only); selected .card--open stays rest scale — fine pointers; off while dragging.
    Selectors must match or beat .rail[data-stagger-ready] .card[data-rail-enter] so transform
    still applies when stagger marks cards as data-rail-enter='off' (higher specificity). */
 @media (hover: hover) and (pointer: fine) {
-  .railWrap[data-hidden='false']:not([data-dragging='true']) .rail[data-stagger-ready='false'] .card:hover,
-  .railWrap[data-hidden='false']:not([data-dragging='true'])
+  /* Hovered card stays full opacity; others fade to 90% */
+  .railWrap:not([data-dragging='true']) .railWrapSlide[data-hidden='false'] .railTrack:has(.card:hover) .card:not(:hover) {
+    opacity: 0.9;
+  }
+
+  .railWrap:not([data-dragging='true']) .railWrapSlide[data-hidden='false'] .rail[data-stagger-ready='false'] .card:not(.card--open):hover,
+  .railWrap:not([data-dragging='true'])
+    .railWrapSlide[data-hidden='false']
     .rail[data-stagger-ready='true']
-    .card[data-rail-enter='off']:hover,
-  .railWrap[data-hidden='false']:not([data-dragging='true'])
+    .card[data-rail-enter='off']:not(.card--open):hover,
+  .railWrap:not([data-dragging='true'])
+    .railWrapSlide[data-hidden='false']
     .rail[data-stagger-ready='true']
-    .card[data-rail-enter='on']:hover {
-    transform: scale(calc(var(--card-rest-scale) * 0.97));
+    .card[data-rail-enter='on']:not(.card--open):hover {
+    transform: scale(calc(var(--card-rest-scale) * 1.05));
   }
 }
 
@@ -515,20 +1020,87 @@
   height: 100%;
   display: block;
   object-position: center;
+  transform: scale(var(--squircle-media-overscan));
+  transform-origin: center center;
+}
+
+/* Title block: horizontal inset from card edges; sits under thumb with --rail-card-label-gap */
+.cardTitleFrame {
+  width: 100%;
+  min-width: 0;
+  padding-inline: 8px;
+  box-sizing: border-box;
+}
+
+.cardLabelRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+}
+
+/*
+ * Dot column: collapsed on non-selected cards (label uses full width).
+ * Selected card grows the slot so copy clears the dot — timed with .railFloatingDot jump.
+ */
+.cardLabelDotSlot {
+  --card-label-dot-size: 10px;
+  --card-label-dot-gap: 6px;
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  flex-shrink: 0;
+  width: 0;
+  min-width: 0;
+  overflow: visible;
+  align-self: flex-start;
+  min-height: calc(0.32em + var(--card-label-dot-size));
+  transition: width var(--duration-rail-dot-jump, 420ms) var(--ease-butter, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.card--open .cardLabelDotSlot {
+  width: calc(var(--card-label-dot-size) + var(--card-label-dot-gap));
+}
+
+/* Invisible measure target — absolute so width:0 slot still exposes a stable rect for the jump */
+.railDotAnchor {
+  position: absolute;
+  left: 0;
+  top: 0.32em;
+  width: var(--card-label-dot-size, 10px);
+  height: var(--card-label-dot-size, 10px);
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .cardLabel {
+  flex: 1;
   margin: 0;
-  padding: 0 4px;
-  width: 100%;
+  padding: 0;
   min-width: 0;
   color: var(--text-strong);
   text-align: left;
+  font-size: var(--font-size-small);
+  line-height: var(--line-height);
+  font-weight: 500;
+  word-break: normal;
+  overflow-wrap: break-word;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  transition: color 0.2s ease;
+  transition:
+    color 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.card--default .cardLabel {
+  opacity: 0.5;
+}
+
+.card--open .cardLabel {
+  opacity: 1;
 }
 
 .railWrap[data-dragging='true'] .railTrack {
@@ -544,6 +1116,12 @@
   transform: scale(0.94);
 }
 
+.railWrap[data-dragging='true'] .card {
+  will-change: transform;
+  transition-duration: 90ms, 90ms;
+  transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1), ease-out;
+}
+
 .railHint {
   display: flex;
   flex-direction: column;
@@ -551,15 +1129,18 @@
   gap: var(--space-1);
   transform: translate3d(0, 12px, 0);
   opacity: 0;
-  margin: 0;
-  padding: 0;
+  margin: 0 0 var(--rail-hint-lift) 0;
+  padding: var(--rail-hint-pad);
   border: none;
   background: none;
   color: var(--text-muted);
+  font-size: var(--font-size-small);
+  line-height: var(--line-height);
+  font-weight: 400;
   pointer-events: none;
   transition:
-    opacity 0.22s ease,
-    transform 0.32s var(--ease-butter, cubic-bezier(0.17, 0.88, 0.32, 1));
+    opacity calc(var(--duration-view-resize, 0.42s) * 0.52) ease,
+    transform calc(var(--duration-view-resize, 0.42s) * 0.78) var(--ease-butter, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .railHintChevron {
@@ -597,12 +1178,7 @@
   pointer-events: none;
   opacity: 0;
   transform: translate3d(-50%, -50%, 0) scale(0.72);
-  transition:
-    width 0.2s ease,
-    height 0.2s ease,
-    border-radius 0.2s ease,
-    opacity 0.2s ease,
-    transform 0.2s ease;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
 .customCursor--visible {
@@ -610,26 +1186,53 @@
   transform: translate3d(-50%, -50%, 0) scale(1);
 }
 
-.customCursor--visible.customCursor--pressed {
+/* Full chip press — idle/proximity use scale-only states below */
+.customCursor--visible.customCursor--pressed:not(.customCursor--idle):not(.customCursor--proximity) {
   transform: translate3d(-50%, -50%, 0) scale(0.88);
 }
 
-.customCursor--idle {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
+/* 8px “dot” = scale chip down (no width/height animation) */
+.customCursor--visible.customCursor--idle {
+  transform: translate3d(-50%, -50%, 0) scale(calc(8px / var(--hint-chip-size)));
 }
 
-.customCursor--proximity {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
+.customCursor--visible.customCursor--idle.customCursor--pressed {
+  transform: translate3d(-50%, -50%, 0) scale(calc((8px / var(--hint-chip-size)) * 0.88));
+}
+
+.customCursor--visible.customCursor--proximity {
   opacity: 0;
   transform: translate3d(-50%, -50%, 0) scale(0.3);
 }
 
 .customCursorIcon {
+  display: inline-flex;
+  transform-origin: center;
   transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.customCursorIcon svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.customCursor[data-direction='right'] .customCursorIcon {
+  transform: rotate(0deg);
+  transition:
+    opacity 0.14s ease,
+    transform 260ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.customCursor[data-direction='left'] .customCursorIcon {
+  transform: rotate(180deg);
+  transition:
+    opacity 0.14s ease,
+    transform 260ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.customCursor[data-direction='drag'] .customCursorIcon {
+  transform: rotate(0deg) scale(0.9);
 }
 
 .customCursor--idle .customCursorIcon,
@@ -647,7 +1250,17 @@
     transition: none;
   }
 
+  .cardLabelDotSlot {
+    transition: none;
+  }
+
+  .railFloatingDot {
+    transition: none !important;
+    animation: none !important;
+  }
+
   .fullBleed,
+  .fullBleedInner,
   .stageMediaWrap {
     transition: none !important;
   }
@@ -657,13 +1270,24 @@
   }
 
   .storyFill--active {
-    animation-timing-function: linear !important;
+    animation: none !important;
+    transform: scaleX(1) !important;
+  }
+
+  .aboutCarouselSlide {
+    animation: none !important;
+    animation-delay: 0s !important;
+    transition: none !important;
   }
 
   .stageFill,
   .projectInfoPanel,
   .projectInfoInner,
+  .aboutOverlay,
+  .hitOverlay,
   .railWrap,
+  .railWrapSlide,
+  .railWrapRubber,
   .railHint,
   .customCursor {
     animation: none;
@@ -693,7 +1317,7 @@
     max-width: 6.2rem;
   }
 
-  .cardLabel {
+  .cardTitleFrame {
     max-width: 9.5rem;
   }
 
@@ -703,34 +1327,77 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
+  .shell--about,
+  .shell--about * {
+    cursor: none !important;
+  }
+
   .stageMediaWrap,
-  .hit,
-  .rail,
-  .railWrap[data-dragging='true'] .rail {
+  .hit {
     cursor: none;
+  }
+
+  .rail,
+  .railWrap[data-dragging='true'] .rail,
+  .card {
+    cursor: auto;
+  }
+
+  .rail {
+    cursor: grab;
+  }
+
+  .railWrap[data-dragging='true'] .rail {
+    cursor: grabbing;
+  }
+
+  .card {
+    cursor: pointer;
   }
 }
 
 @media (max-width: 980px) {
   .shell {
-    --info-panel-w: 18rem;
+    --info-panel-w: 22rem;
   }
 }
 
 @media (max-width: 860px) {
-  .shell--info .fullBleed {
+  .aboutOverlayCarouselWrap {
+    width: min(88vw, 34rem);
+    top: 56%;
+  }
+
+  .aboutCarouselViewport {
+    height: min(45svh, 25rem);
+  }
+
+  .aboutCarouselSlide {
+    width: min(52vw, 16rem);
+    transform: translate(-50%, -50%)
+      translateX(var(--about-slide-x, 0%))
+      translateY(var(--about-slide-y, 0%))
+      scale(calc(1 - var(--about-slide-abs-offset) * 0.1))
+      rotate(calc(var(--about-slide-offset) * 5deg));
+  }
+
+  .shell--info .fullBleedInner {
     flex-direction: column;
     overflow-x: hidden;
     overflow-y: auto;
   }
 
+  /* Stack: stage on top (DOM has panel first — bump stage up) */
   .shell--info .stageMediaWrap {
+    order: 1;
     flex: 1 1 auto;
     min-height: min(44svh, 52vh);
     width: 100%;
   }
 
   .shell--info .projectInfoPanel {
+    order: 2;
+    align-self: stretch;
     flex: 1 1 auto;
     min-height: 0;
     width: 100%;

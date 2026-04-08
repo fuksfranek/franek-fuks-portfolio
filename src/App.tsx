@@ -9,9 +9,100 @@ import {
 } from 'react'
 import type { Media } from './data/projects'
 import { defaultProjectDescription, projects } from './data/projects'
+import { ProjectInfoBody } from './ProjectInfoBody'
+import { TypographyRevealLines } from './TypographyRevealLines'
+import { AboutInfiniteCarousel } from './AboutInfiniteCarousel'
+import { SquircleMediaStroke } from './SquircleMediaStroke'
+import { Squircle } from '@squircle-js/react'
 import './App.css'
 
-const USE_COLOR_MEDIA_PLACEHOLDERS = true
+const USE_COLOR_MEDIA_PLACEHOLDERS = false
+
+/** Matches `--project-media-radius` in index.css */
+const PROJECT_MEDIA_RADIUS = 20
+/** Matches `.cardLabelDot` / `.railDotAnchor` in App.css */
+const RAIL_DOT_SIZE_PX = 10
+const RAIL_DOT_JUMP_MS = 420
+
+/**
+ * Dot is `position:absolute` on `.railTrack` (inside the horizontal scroll content), so it moves
+ * with the strip when `.rail` scrolls — no scroll listeners. Origin = track padding edge.
+ */
+function computeRailDotTranslate(track: HTMLDivElement, anchor: HTMLElement) {
+  const trackRect = track.getBoundingClientRect()
+  const ox = trackRect.left + track.clientLeft
+  const oy = trackRect.top + track.clientTop
+  const anchorRect = anchor.getBoundingClientRect()
+  const cx = anchorRect.left + anchorRect.width / 2 - ox
+  const cy = anchorRect.top + anchorRect.height / 2 - oy
+  return { x: cx - RAIL_DOT_SIZE_PX / 2, y: cy - RAIL_DOT_SIZE_PX / 2 }
+}
+
+function getRailDotTranslateFromVisual(track: HTMLDivElement, dot: HTMLElement) {
+  const trackRect = track.getBoundingClientRect()
+  const ox = trackRect.left + track.clientLeft
+  const oy = trackRect.top + track.clientTop
+  const dotRect = dot.getBoundingClientRect()
+  return {
+    x: dotRect.left - ox,
+    y: dotRect.top - oy,
+  }
+}
+
+function buildRailDotJumpKeyframes(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  steps: number,
+) {
+  const cx = (start.x + end.x) / 2
+  const dx = Math.abs(end.x - start.x)
+  /* Tall arc (y increases downward): smaller cy = higher on screen. OK if path crosses card thumbs. */
+  const arcH = Math.min(260, dx * 0.48 + 52)
+  const cy = Math.min(start.y, end.y) - arcH
+  const keyframes: { transform: string }[] = []
+  for (let i = 0; i <= steps; i += 1) {
+    const t = i / steps
+    const x = (1 - t) * (1 - t) * start.x + 2 * (1 - t) * t * cx + t * t * end.x
+    const y = (1 - t) * (1 - t) * start.y + 2 * (1 - t) * t * cy + t * t * end.y
+    keyframes.push({ transform: `translate(${x}px, ${y}px)` })
+  }
+  return keyframes
+}
+/** Matches `--duration-stage-info` (0.3s) — stage squircle + info layout only */
+const VIEW_RESIZE_MS = 300
+/** Matches `animation-delay: stagger * (--duration-stage-info / 6.176)` on `.card[data-rail-enter='on']` */
+const RAIL_STAGGER_TIME_DIVISOR = 6.176
+/** Matches `--duration-rail-card-enter` in index.css */
+const RAIL_CARD_ENTER_MS = 380
+
+/** y at input time t for a CSS cubic-bezier(x1,y1,x2,y2) easing curve */
+function cssBezierYAtT(t: number, x1: number, y1: number, x2: number, y2: number) {
+  if (t <= 0) return 0
+  if (t >= 1) return 1
+  let lo = 0
+  let hi = 1
+  for (let i = 0; i < 14; i += 1) {
+    const mid = (lo + hi) / 2
+    const x = bezierX(mid, x1, x2)
+    if (x < t) lo = mid
+    else hi = mid
+  }
+  const u = (lo + hi) / 2
+  return bezierY(u, y1, y2)
+}
+
+/** Matches `--ease-view-inset` / `--ease-out-quart` — same curve as padding / panel / hit overlay */
+function easeViewInsetY(t: number) {
+  return cssBezierYAtT(t, 0.165, 0.84, 0.44, 1)
+}
+
+function bezierX(u: number, x1: number, x2: number) {
+  return 3 * (1 - u) * (1 - u) * u * x1 + 3 * (1 - u) * u * u * x2 + u * u * u
+}
+
+function bezierY(u: number, y1: number, y2: number) {
+  return 3 * (1 - u) * (1 - u) * u * y1 + 3 * (1 - u) * u * u * y2 + u * u * u
+}
 
 function hashString(value: string) {
   let hash = 0
@@ -106,13 +197,131 @@ function MediaView({
   )
 }
 
-const WHEEL_STEP = 80
-/** Reveal rail on smaller upward wheel delta so motion lines up with the gesture */
-const RAIL_WHEEL_SHOW_EARLY = 32
 const SWIPE_STEP = 42
-/** Reveal rail as soon as swipe-down passes this (same direction as touchend show) */
-const RAIL_TOUCH_SHOW_PX = 28
+/** Legacy fallback when prefers-reduced-motion (no rubber preview) */
 const INFO_WHEEL_STEP = 56
+/** Horizontal wheel accumulation (px) to commit info open/close */
+const INFO_COMMIT_WHEEL_ACC = 140
+/** Max horizontal rubber-band shift on .fullBleed (translateX) when info is closed */
+const INFO_PREVIEW_MAX_PX = 32
+/** Max horizontal stretch (scaleX delta, right origin) when info is open — no translate */
+const INFO_PREVIEW_MAX_STRETCH_X = 0.045
+/** How far the project rail shifts down (px) at full horizontal stretch — keeps slider in the gesture */
+const INFO_STRETCH_RAIL_PULL_PX = 440
+/** Same for vertical close stretch (scaleY, top pinned) */
+const INFO_STRETCH_RAIL_PULL_FROM_STRETCH_Y_PX = 440
+/** Max vertical stretch (scaleY delta, top origin) when info is open — close preview; no translateY */
+const INFO_PREVIEW_MAX_STRETCH_Y = 0.045
+/** Max vertical rubber-band shift on .fullBleed (translateY) when info is closed — open preview */
+const INFO_PREVIEW_MAX_PY = 28
+/** Wrong-way pinch/squeeze preview — kept subtle vs. commit direction */
+const INFO_PREVIEW_WRONG_MAX_PX = 11
+const INFO_PREVIEW_WRONG_MAX_STRETCH_X = 0.014
+const INFO_PREVIEW_WRONG_MAX_PY = 12
+const INFO_PREVIEW_WRONG_MAX_STRETCH_Y = 0.014
+/** Couple horizontal translate rubber to rail vertical nudge (wrong-way uses negative X) */
+const INFO_WRONG_X_RAIL_PULL_RATIO = 0.2
+/** Ignore wheel oscillation below this (px-equivalent) for rubber *visuals* — avoids end jitter */
+const INFO_RUBBER_WHEEL_DEAD_ZONE = 14
+const RUBBER_WHEEL_DENOM = INFO_COMMIT_WHEEL_ACC - INFO_RUBBER_WHEEL_DEAD_ZONE
+/** After last wheel event, wait before snap-back so trackpad tail noise doesn’t re-trigger rubber */
+const INFO_WHEEL_IDLE_MS = 260
+/** Release length scales with how far rubber was pulled (strain 0→1) — keeps motion tied to input */
+/** Correct-direction preview release: short snap with ease-out only (no long “ease back”) */
+const INFO_RUBBER_CORRECT_RELEASE_MS_MIN = 70
+const INFO_RUBBER_CORRECT_RELEASE_MS_MAX = 220
+const INFO_RUBBER_WRONG_RELEASE_MS_MIN = 160
+const INFO_RUBBER_WRONG_RELEASE_MS_MAX = 580
+/** Touch horizontal swipe (px) to commit */
+const INFO_SWIPE_COMMIT_PX = 88
+/** Touch vertical swipe (px) to commit */
+const INFO_SWIPE_COMMIT_PY = 88
+
+/**
+ * Wheel rubber preview: 0 until past dead zone, then **linear** in accumulated px (like spring displacement).
+ * Avoids smoothstep “animation” feel vs scroll amount.
+ */
+function rubberWheelStrain01(mag: number): number {
+  const m = Math.max(0, mag - INFO_RUBBER_WHEEL_DEAD_ZONE)
+  return Math.min(1, m / RUBBER_WHEEL_DENOM)
+}
+
+/** How far current rubber is pushed toward its per-direction max (0–1) — drives release duration. */
+function rubberReleaseStrain01(x: number, sx: number, sy: number, y: number): number {
+  const nx =
+    x <= 0 ? Math.abs(x) / INFO_PREVIEW_WRONG_MAX_PX : Math.abs(x) / INFO_PREVIEW_MAX_PX
+  const nsx =
+    sx < 0 ? Math.abs(sx) / INFO_PREVIEW_WRONG_MAX_STRETCH_X : Math.abs(sx) / INFO_PREVIEW_MAX_STRETCH_X
+  const nsy =
+    sy < 0 ? Math.abs(sy) / INFO_PREVIEW_WRONG_MAX_STRETCH_Y : Math.abs(sy) / INFO_PREVIEW_MAX_STRETCH_Y
+  const ny =
+    y > 0 ? Math.abs(y) / INFO_PREVIEW_WRONG_MAX_PY : Math.abs(y) / INFO_PREVIEW_MAX_PY
+  return Math.min(1, Math.max(0, nx, nsx, nsy, ny))
+}
+
+/** Opposite-scroll “squeeze” preview (negative X / negative stretch / wrong vertical). */
+function isWrongWayRubber(
+  x: number,
+  stretchX: number,
+  stretchY: number,
+  y: number,
+  infoOpen: boolean,
+): boolean {
+  if (stretchX < 0 || stretchY < 0) return true
+  if (x < 0) return true
+  if (!infoOpen && y > 0) return true
+  return false
+}
+
+/** Let native wheel scroll long copy in the info panel instead of closing / rubber. */
+function wheelShouldDeferToInfoPanelScroll(
+  target: Node | null,
+  py: number,
+  panel: HTMLElement | null,
+  infoOpen: boolean,
+): boolean {
+  if (!infoOpen || !target || !panel || !panel.contains(target)) return false
+  if (panel.scrollHeight <= panel.clientHeight + 1) return false
+  const atTop = panel.scrollTop <= 0
+  const atBottom = panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 1
+  if (py < 0 && !atTop) return true
+  if (py > 0 && !atBottom) return true
+  return false
+}
+
+function touchVerticalShouldDeferToInfoPanelScroll(
+  target: Node | null,
+  deltaY: number,
+  absX: number,
+  absY: number,
+  panel: HTMLElement | null,
+  infoOpen: boolean,
+): boolean {
+  if (!infoOpen || !target || !panel || !panel.contains(target)) return false
+  if (panel.scrollHeight <= panel.clientHeight + 1) return false
+  if (absY <= absX || absY <= 12) return false
+  const atTop = panel.scrollTop <= 0
+  const atBottom = panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 1
+  if (deltaY < 0 && !atTop) return true
+  if (deltaY > 0 && !atBottom) return true
+  return false
+}
+
+/** Avoid treating panel scroll as swipe-to-close on finger lift. */
+function touchEndVerticalIsPanelScrollNotClose(
+  deltaY: number,
+  absX: number,
+  absY: number,
+  target: Node | null,
+  panel: HTMLElement | null,
+  infoOpen: boolean,
+): boolean {
+  if (!infoOpen || !target || !panel || !panel.contains(target)) return false
+  if (panel.scrollHeight <= panel.clientHeight + 1) return false
+  if (absY <= absX || absY < 12) return false
+  const atTop = panel.scrollTop <= 0
+  return deltaY < 0 && !atTop
+}
 const RAIL_WHEEL_X_MIN = 1.5
 const RAIL_HORIZONTAL_RATIO = 0.65
 const VERTICAL_INTENT_RATIO = 1.12
@@ -235,12 +444,36 @@ function pointToRectDistance(x: number, y: number, rect: DOMRect) {
   return Math.hypot(dx, dy)
 }
 
+function formatWarsawTimeLabel(now = new Date()) {
+  const time = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Warsaw',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(now)
+  return `Poland, Warsaw, PL, ${time}`
+}
+
 export default function App() {
   const [{ projectIndex, assetIndex }, dispatch] = useReducer(viewReducer, {
     projectIndex: 0,
     assetIndex: 0,
   })
   const [isInfoOpen, setIsInfoOpen] = useState(false)
+  const [isAboutOpen, setIsAboutOpen] = useState(false)
+  const [warsawTimeLabel, setWarsawTimeLabel] = useState(() => formatWarsawTimeLabel())
+  const [aboutRevealVersion, setAboutRevealVersion] = useState(0)
+  const [infoRubberX, setInfoRubberX] = useState(0)
+  const [infoRubberStretchX, setInfoRubberStretchX] = useState(0)
+  const [infoRubberStretchY, setInfoRubberStretchY] = useState(0)
+  const [infoRubberY, setInfoRubberY] = useState(0)
+  const [infoRubberLive, setInfoRubberLive] = useState(false)
+  const [infoRubberWrongRelease, setInfoRubberWrongRelease] = useState(false)
+  /** Correct-direction rubber return: snappier timing + CSS ease-out (mutually exclusive with wrong-release) */
+  const [infoRubberCorrectRelease, setInfoRubberCorrectRelease] = useState(false)
+  /** Inline `--info-rubber-transform-dur` while releasing — length follows deformation strain */
+  const [infoRubberReleaseTransformDur, setInfoRubberReleaseTransformDur] = useState<string | null>(null)
+  const [infoRubberAxis, setInfoRubberAxis] = useState<'x' | 'y' | null>(null)
   const [railStagger, setRailStagger] = useState<RailStaggerState>({
     ready: false,
     stagger: [],
@@ -254,10 +487,13 @@ export default function App() {
     idle: false,
     proximityHidden: false,
   })
-  const wheelAcc = useRef({ y: 0 })
   const infoWheelAcc = useRef(0)
+  const infoWheelAccY = useRef(0)
+  const infoWheelIdleTimerRef = useRef<number | null>(null)
+  const infoRubberWrongReleaseClearTimerRef = useRef<number | null>(null)
+  const infoRubberSnapshotRef = useRef({ x: 0, sx: 0, sy: 0, y: 0 })
+  const isInfoOpenRef = useRef(false)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
-  const railTouchRevealStarted = useRef(false)
   const cursorElRef = useRef<HTMLDivElement>(null)
   const cursorUiRef = useRef<CursorUiState>({
     zone: 'none',
@@ -290,11 +526,26 @@ export default function App() {
   })
   const lastRailDragAt = useRef(0)
   const cardRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const railDotAnchorRefs = useRef<(HTMLSpanElement | null)[]>([])
+  const railFloatingDotRef = useRef<HTMLDivElement | null>(null)
+  const railDotAnimRef = useRef<Animation | null>(null)
+  const railDotAnimLockRef = useRef(false)
+  /** Last project index after a completed dot move; only updated in onFinish / instant paths — not mid-animation (fixes Strict Mode + off-screen cards). */
+  const railDotCommittedProjectIndexRef = useRef(projectIndex)
+  const [railDotTranslate, setRailDotTranslate] = useState({ x: 0, y: 0 })
+  /** When true, WAAPI owns transform — don't apply React inline translate */
+  const [railDotAnimating, setRailDotAnimating] = useState(false)
   const stageWrapRef = useRef<HTMLElement>(null)
   const stageHitRef = useRef<HTMLDivElement>(null)
+  const projectInfoPanelRef = useRef<HTMLElement | null>(null)
+  const shellRef = useRef<HTMLDivElement | null>(null)
   const railWrapRef = useRef<HTMLElement>(null)
   const railRef = useRef<HTMLDivElement>(null)
-  const railInitialScrollDone = useRef(false)
+  const aboutOverlayInnerRef = useRef<HTMLDivElement | null>(null)
+  const aboutCloseCursorRef = useRef<HTMLDivElement | null>(null)
+  const stageCornerRadiusRef = useRef(0)
+  const stageCornerRafRef = useRef<number | null>(null)
+  const [stageCornerRadius, setStageCornerRadius] = useState(0)
 
   const project = projects[projectIndex]
   const gallery = project.gallery
@@ -320,6 +571,144 @@ export default function App() {
   const selectProject = useCallback((index: number) => {
     dispatch({ type: 'selectProject', index })
   }, [])
+
+  useLayoutEffect(() => {
+    let cancelled = false
+    let rafAnchor = 0
+    let rafSettle1 = 0
+    let rafSettle2 = 0
+    const ANCHOR_RAF_MAX = 12
+
+    const scheduleStaticSettle = () => {
+      rafSettle1 = requestAnimationFrame(() => {
+        rafSettle2 = requestAnimationFrame(() => {
+          if (cancelled || railDotAnimLockRef.current) return
+          const track = railTrackRef.current
+          const a = railDotAnchorRefs.current[projectIndex]
+          if (!track || !a) return
+          setRailDotTranslate(computeRailDotTranslate(track, a))
+        })
+      })
+    }
+
+    const run = (anchorAttempt: number) => {
+      const track = railTrackRef.current
+      const dot = railFloatingDotRef.current
+      if (!track || !dot || cancelled) return
+      const anchor = railDotAnchorRefs.current[projectIndex]
+      if (!anchor) {
+        if (anchorAttempt < ANCHOR_RAF_MAX) {
+          rafAnchor = requestAnimationFrame(() => run(anchorAttempt + 1))
+        }
+        return
+      }
+
+      const cardEl = cardRefs.current[projectIndex]
+      const from = railDotCommittedProjectIndexRef.current
+
+      if (from === projectIndex) {
+        if (cardEl) cardEl.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'instant' })
+        const end = computeRailDotTranslate(track, anchor)
+        if (!railDotAnimLockRef.current) setRailDotTranslate(end)
+        scheduleStaticSettle()
+        return
+      }
+
+      railDotAnimRef.current?.cancel()
+      railDotAnimRef.current = null
+
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        if (cardEl) cardEl.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'instant' })
+        const end = computeRailDotTranslate(track, anchor)
+        setRailDotTranslate(end)
+        setRailDotAnimating(false)
+        railDotCommittedProjectIndexRef.current = projectIndex
+        return
+      }
+
+      if (cardEl) cardEl.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'instant' })
+      const end = computeRailDotTranslate(track, anchor)
+      const start = getRailDotTranslateFromVisual(track, dot)
+
+      railDotAnimLockRef.current = true
+      setRailDotAnimating(true)
+      const keyframes = buildRailDotJumpKeyframes(start, end, 24)
+      const anim = dot.animate(keyframes, {
+        duration: RAIL_DOT_JUMP_MS,
+        easing: 'cubic-bezier(0.165, 0.84, 0.44, 1)',
+        fill: 'forwards',
+      })
+      railDotAnimRef.current = anim
+      const onFinish = () => {
+        railDotAnimRef.current = null
+        railDotAnimLockRef.current = false
+        setRailDotTranslate(end)
+        setRailDotAnimating(false)
+        railDotCommittedProjectIndexRef.current = projectIndex
+      }
+      const onCancel = () => {
+        railDotAnimRef.current = null
+        railDotAnimLockRef.current = false
+        setRailDotAnimating(false)
+        const t = railTrackRef.current
+        const d = railFloatingDotRef.current
+        if (t && d) setRailDotTranslate(getRailDotTranslateFromVisual(t, d))
+      }
+      anim.onfinish = onFinish
+      anim.oncancel = onCancel
+    }
+
+    run(0)
+
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(rafAnchor)
+      cancelAnimationFrame(rafSettle1)
+      cancelAnimationFrame(rafSettle2)
+      const hadAnim = railDotAnimRef.current != null
+      railDotAnimRef.current?.cancel()
+      if (!hadAnim && railDotAnimLockRef.current) {
+        railDotAnimLockRef.current = false
+      }
+    }
+  }, [projectIndex, isInfoOpen, railStagger.ready])
+
+  useEffect(() => {
+    const onResize = () => {
+      if (railDotAnimLockRef.current) return
+      const track = railTrackRef.current
+      const a = railDotAnchorRefs.current[projectIndex]
+      if (!track || !a) return
+      setRailDotTranslate(computeRailDotTranslate(track, a))
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [projectIndex])
+
+  /* Cards with `railCardEnter` move vertically; re-measure until enter animation finishes. */
+  const railStaggerOrder = railStagger.stagger[projectIndex] ?? 0
+  useEffect(() => {
+    if (!isInfoOpen || !railStagger.ready) return
+
+    const delayMs = railStaggerOrder * (VIEW_RESIZE_MS / RAIL_STAGGER_TIME_DIVISOR)
+    const followMs = delayMs + RAIL_CARD_ENTER_MS + 100
+
+    let rafId = 0
+    const t0 = performance.now()
+
+    const tick = () => {
+      if (performance.now() - t0 > followMs) return
+      if (!railDotAnimLockRef.current) {
+        const track = railTrackRef.current
+        const a = railDotAnchorRefs.current[projectIndex]
+        if (track && a) setRailDotTranslate(computeRailDotTranslate(track, a))
+      }
+      rafId = requestAnimationFrame(tick)
+    }
+
+    rafId = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafId)
+  }, [isInfoOpen, railStagger.ready, projectIndex, railStaggerOrder])
 
   const cancelRailMomentum = useCallback(() => {
     if (railMomentumRaf.current !== null) {
@@ -466,16 +855,311 @@ export default function App() {
     setIsRailDragging(false)
   }, [])
 
-  const openInfo = useCallback(() => {
-    setIsInfoOpen(true)
+  const clearInfoWheelIdleTimer = useCallback(() => {
+    if (infoWheelIdleTimerRef.current !== null) {
+      window.clearTimeout(infoWheelIdleTimerRef.current)
+      infoWheelIdleTimerRef.current = null
+    }
   }, [])
 
+  const clearInfoRubberWrongReleaseTimer = useCallback(() => {
+    if (infoRubberWrongReleaseClearTimerRef.current !== null) {
+      window.clearTimeout(infoRubberWrongReleaseClearTimerRef.current)
+      infoRubberWrongReleaseClearTimerRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    infoRubberSnapshotRef.current = {
+      x: infoRubberX,
+      sx: infoRubberStretchX,
+      sy: infoRubberStretchY,
+      y: infoRubberY,
+    }
+  }, [infoRubberX, infoRubberStretchX, infoRubberStretchY, infoRubberY])
+
+  const releaseRubberBandSmooth = useCallback(
+    (opts?: { wrongWay?: boolean }) => {
+      const snap = infoRubberSnapshotRef.current
+      if (snap.x === 0 && snap.sx === 0 && snap.sy === 0 && snap.y === 0) {
+        clearInfoRubberWrongReleaseTimer()
+        setInfoRubberWrongRelease(false)
+        setInfoRubberCorrectRelease(false)
+        setInfoRubberReleaseTransformDur(null)
+        setInfoRubberLive(false)
+        setInfoRubberAxis(null)
+        return
+      }
+
+      if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        clearInfoWheelIdleTimer()
+        clearInfoRubberWrongReleaseTimer()
+        infoWheelAcc.current = 0
+        infoWheelAccY.current = 0
+        setInfoRubberWrongRelease(false)
+        setInfoRubberCorrectRelease(false)
+        setInfoRubberReleaseTransformDur(null)
+        setInfoRubberLive(false)
+        setInfoRubberX(0)
+        setInfoRubberStretchX(0)
+        setInfoRubberStretchY(0)
+        setInfoRubberY(0)
+        setInfoRubberAxis(null)
+        return
+      }
+
+      clearInfoWheelIdleTimer()
+      infoWheelAcc.current = 0
+      infoWheelAccY.current = 0
+
+      const wrongWay =
+        opts?.wrongWay ??
+        isWrongWayRubber(snap.x, snap.sx, snap.sy, snap.y, isInfoOpenRef.current)
+
+      clearInfoRubberWrongReleaseTimer()
+
+      const strain = rubberReleaseStrain01(snap.x, snap.sx, snap.sy, snap.y)
+      const minMs = wrongWay ? INFO_RUBBER_WRONG_RELEASE_MS_MIN : INFO_RUBBER_CORRECT_RELEASE_MS_MIN
+      const maxMs = wrongWay ? INFO_RUBBER_WRONG_RELEASE_MS_MAX : INFO_RUBBER_CORRECT_RELEASE_MS_MAX
+      const releaseMs = Math.round(minMs + strain * (maxMs - minMs))
+      setInfoRubberReleaseTransformDur(`${releaseMs}ms`)
+
+      setInfoRubberWrongRelease(wrongWay)
+      setInfoRubberCorrectRelease(!wrongWay)
+      setInfoRubberLive(false)
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setInfoRubberX(0)
+          setInfoRubberStretchX(0)
+          setInfoRubberStretchY(0)
+          setInfoRubberY(0)
+          setInfoRubberAxis(null)
+          const clearMs = releaseMs + 100
+          infoRubberWrongReleaseClearTimerRef.current = window.setTimeout(() => {
+            infoRubberWrongReleaseClearTimerRef.current = null
+            setInfoRubberWrongRelease(false)
+            setInfoRubberCorrectRelease(false)
+            setInfoRubberReleaseTransformDur(null)
+          }, clearMs)
+        })
+      })
+    },
+    [clearInfoRubberWrongReleaseTimer, clearInfoWheelIdleTimer],
+  )
+
+  const openInfo = useCallback(() => {
+    clearInfoWheelIdleTimer()
+    clearInfoRubberWrongReleaseTimer()
+    setInfoRubberWrongRelease(false)
+    setInfoRubberCorrectRelease(false)
+    setInfoRubberReleaseTransformDur(null)
+    infoWheelAcc.current = 0
+    infoWheelAccY.current = 0
+    setInfoRubberX(0)
+    setInfoRubberStretchX(0)
+    setInfoRubberStretchY(0)
+    setInfoRubberY(0)
+    setInfoRubberLive(false)
+    setInfoRubberAxis(null)
+    setIsInfoOpen(true)
+  }, [clearInfoRubberWrongReleaseTimer, clearInfoWheelIdleTimer])
+
   const closeInfo = useCallback(() => {
+    clearInfoWheelIdleTimer()
+    clearInfoRubberWrongReleaseTimer()
+    setInfoRubberWrongRelease(false)
+    setInfoRubberCorrectRelease(false)
+    setInfoRubberReleaseTransformDur(null)
+    infoWheelAcc.current = 0
+    infoWheelAccY.current = 0
+    setInfoRubberX(0)
+    setInfoRubberStretchX(0)
+    setInfoRubberStretchY(0)
+    setInfoRubberY(0)
+    setInfoRubberLive(false)
+    setInfoRubberAxis(null)
     setIsInfoOpen(false)
     cancelRailMomentum()
     cancelRailGapDynamics()
     resetRailPointer()
-  }, [cancelRailGapDynamics, cancelRailMomentum, resetRailPointer])
+  }, [
+    cancelRailGapDynamics,
+    cancelRailMomentum,
+    clearInfoRubberWrongReleaseTimer,
+    clearInfoWheelIdleTimer,
+    resetRailPointer,
+  ])
+
+  const toggleAbout = useCallback(() => {
+    setIsAboutOpen((prev) => {
+      const next = !prev
+      if (next) setAboutRevealVersion((v) => v + 1)
+      return next
+    })
+  }, [])
+
+  const closeAbout = useCallback(() => {
+    setIsAboutOpen(false)
+  }, [])
+
+  useEffect(() => {
+    const tick = () => setWarsawTimeLabel(formatWarsawTimeLabel())
+    tick()
+    const timer = window.setInterval(tick, 15000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const aboutCarouselItems = useMemo(
+    () =>
+      projects
+        .map((p) => {
+          if (p.cover.kind === 'image') return { id: p.id, src: p.cover.src, alt: p.cover.alt }
+          if (p.cover.poster) return { id: p.id, src: p.cover.poster, alt: `${p.label} poster` }
+          return null
+        })
+        .filter((item): item is { id: string; src: string; alt: string } => item !== null)
+        .slice(0, 9),
+    [],
+  )
+
+  useEffect(() => {
+    if (!isInfoOpen) return
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const panel = projectInfoPanelRef.current
+    if (!panel) return
+    let disposed = false
+    let rafOuter = 0
+    let rafInner = 0
+    rafOuter = requestAnimationFrame(() => {
+      rafInner = requestAnimationFrame(() => {
+        const lines = Array.from(panel.querySelectorAll<HTMLElement>('.typographyRevealLine'))
+        if (!lines.length || disposed) return
+        void import('gsap').then(({ gsap }) => {
+          if (disposed) return
+          gsap.killTweensOf(lines)
+          gsap.set(lines, { autoAlpha: 0, y: 6 })
+          gsap.to(lines, {
+            autoAlpha: 1,
+            y: 0,
+            duration: 0.28,
+            ease: 'power2.out',
+            stagger: 0.018,
+            overwrite: 'auto',
+          })
+        })
+      })
+    })
+    return () => {
+      disposed = true
+      cancelAnimationFrame(rafOuter)
+      cancelAnimationFrame(rafInner)
+    }
+  }, [isInfoOpen, project.id, project.description])
+
+  useEffect(() => {
+    if (!isAboutOpen) return
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const overlay = aboutOverlayInnerRef.current
+    if (!overlay) return
+    let disposed = false
+    let rafOuter = 0
+    let rafInner = 0
+    rafOuter = requestAnimationFrame(() => {
+      rafInner = requestAnimationFrame(() => {
+        const lines = Array.from(overlay.querySelectorAll<HTMLElement>('.typographyRevealLine'))
+        if (!lines.length || disposed) return
+        void import('gsap').then(({ gsap }) => {
+          if (disposed) return
+          gsap.killTweensOf(lines)
+          gsap.set(lines, { autoAlpha: 0, y: 6 })
+          gsap.to(lines, {
+            autoAlpha: 1,
+            y: 0,
+            duration: 0.28,
+            ease: 'power2.out',
+            stagger: 0.018,
+            delay: 0.06,
+            overwrite: 'auto',
+          })
+        })
+      })
+    })
+    return () => {
+      disposed = true
+      cancelAnimationFrame(rafOuter)
+      cancelAnimationFrame(rafInner)
+    }
+  }, [isAboutOpen, aboutRevealVersion])
+
+  useEffect(() => {
+    isInfoOpenRef.current = isInfoOpen
+  }, [isInfoOpen])
+
+  /* Block native touch scrolling while horizontal rubber is active (panel copy, overscroll). */
+  useEffect(() => {
+    const el = shellRef.current
+    if (!el || !isInfoOpen || !infoRubberLive || (infoRubberAxis !== 'x' && infoRubberAxis !== 'y')) return
+    const prevent = (e: TouchEvent) => {
+      e.preventDefault()
+    }
+    el.addEventListener('touchmove', prevent, { passive: false })
+    return () => el.removeEventListener('touchmove', prevent)
+  }, [isInfoOpen, infoRubberAxis, infoRubberLive])
+
+  /** Animate stage squircle radius with layout (clip-path can’t transition in CSS) */
+  useEffect(() => {
+    const target = isInfoOpen ? PROJECT_MEDIA_RADIUS : 0
+    const from = stageCornerRadiusRef.current
+
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      if (stageCornerRafRef.current !== null) {
+        cancelAnimationFrame(stageCornerRafRef.current)
+        stageCornerRafRef.current = null
+      }
+      stageCornerRadiusRef.current = target
+      setStageCornerRadius(target)
+      return
+    }
+
+    if (stageCornerRafRef.current !== null) {
+      cancelAnimationFrame(stageCornerRafRef.current)
+      stageCornerRafRef.current = null
+    }
+
+    if (Math.abs(from - target) < 0.001) {
+      stageCornerRadiusRef.current = target
+      setStageCornerRadius(target)
+      return
+    }
+
+    const start = performance.now()
+
+    const tick = (now: number) => {
+      const elapsed = now - start
+      const t = Math.min(1, elapsed / VIEW_RESIZE_MS)
+      const eased = easeViewInsetY(t)
+      const v = from + (target - from) * eased
+      stageCornerRadiusRef.current = v
+      setStageCornerRadius(v)
+      if (t < 1) {
+        stageCornerRafRef.current = requestAnimationFrame(tick)
+      } else {
+        stageCornerRafRef.current = null
+        stageCornerRadiusRef.current = target
+        setStageCornerRadius(target)
+      }
+    }
+
+    stageCornerRafRef.current = requestAnimationFrame(tick)
+
+    return () => {
+      if (stageCornerRafRef.current !== null) {
+        cancelAnimationFrame(stageCornerRafRef.current)
+        stageCornerRafRef.current = null
+      }
+    }
+  }, [isInfoOpen])
 
   useEffect(() => {
     cursorUiRef.current = cursorUi
@@ -615,6 +1299,12 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isAboutOpen) {
+        e.preventDefault()
+        closeAbout()
+        return
+      }
+
       if (e.key === 'Escape' && isInfoOpen) {
         e.preventDefault()
         closeInfo()
@@ -627,10 +1317,10 @@ export default function App() {
       } else if (e.key === 'ArrowRight') {
         e.preventDefault()
         goNextProject()
-      } else if (e.key === 'ArrowUp') {
+      } else if (e.key === 'ArrowDown') {
         e.preventDefault()
         openInfo()
-      } else if (e.key === 'ArrowDown') {
+      } else if (e.key === 'ArrowUp') {
         e.preventDefault()
         closeInfo()
       } else if (e.key === 'Home') {
@@ -643,7 +1333,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [closeInfo, goPrevProject, goNextProject, isInfoOpen, openInfo, selectProject])
+  }, [closeAbout, closeInfo, goPrevProject, goNextProject, isAboutOpen, isInfoOpen, openInfo, selectProject])
 
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
@@ -652,11 +1342,12 @@ export default function App() {
       const ay = Math.abs(py)
       if (ax < 0.5 && ay < 0.5) return
 
+      if (isAboutOpen) {
+        return
+      }
+
       const targetNode = e.target instanceof Node ? e.target : null
       const isOnRail = targetNode ? railWrapRef.current?.contains(targetNode) : false
-      const isOnProjectItemsZone =
-        !!targetNode &&
-        (stageWrapRef.current?.contains(targetNode) === true || stageHitRef.current?.contains(targetNode) === true)
 
       if (isOnRail && isInfoOpen) {
         const horizontalIntent =
@@ -672,8 +1363,15 @@ export default function App() {
             e.preventDefault()
             rail.scrollLeft += py
           }
+          clearInfoWheelIdleTimer()
           infoWheelAcc.current = 0
-          wheelAcc.current = { y: 0 }
+          infoWheelAccY.current = 0
+          setInfoRubberX(0)
+          setInfoRubberStretchX(0)
+          setInfoRubberStretchY(0)
+          setInfoRubberY(0)
+          setInfoRubberLive(false)
+          setInfoRubberAxis(null)
           return
         }
 
@@ -682,40 +1380,224 @@ export default function App() {
       }
 
       const horizontalIntent = ax > ay
-      if (isOnProjectItemsZone && horizontalIntent) {
+      if (!isOnRail && horizontalIntent) {
         e.preventDefault()
-        infoWheelAcc.current += px
-        if (Math.abs(infoWheelAcc.current) < INFO_WHEEL_STEP) return
-
-        const towardOpen = infoWheelAcc.current > 0
-        infoWheelAcc.current = 0
-        if (towardOpen && !isInfoOpen) {
-          openInfo()
-        } else if (!towardOpen && isInfoOpen) {
-          closeInfo()
+        infoWheelAccY.current = 0
+        setInfoRubberY(0)
+        setInfoRubberStretchY(0)
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          infoWheelAcc.current += px
+          if (Math.abs(infoWheelAcc.current) < INFO_WHEEL_STEP) return
+          const towardOpen = infoWheelAcc.current < 0
+          infoWheelAcc.current = 0
+          if (towardOpen && !isInfoOpen) openInfo()
+          else if (!towardOpen && isInfoOpen) closeInfo()
+          return
         }
+
+        infoWheelAcc.current += px
+        const acc = infoWheelAcc.current
+        const mag = Math.abs(acc)
+        const open = isInfoOpenRef.current
+        const correctTowardOpen = !open && acc < 0
+        const correctTowardClose = open && acc > 0
+        const wrongWhenClosed = !open && acc > 0
+        const wrongWhenOpen = open && acc < 0
+
+        const snapHorizontalRubber = () => {
+          clearInfoWheelIdleTimer()
+          infoWheelAcc.current = 0
+          infoWheelAccY.current = 0
+          setInfoRubberLive(false)
+          setInfoRubberX(0)
+          setInfoRubberStretchX(0)
+          setInfoRubberStretchY(0)
+          setInfoRubberY(0)
+          setInfoRubberAxis(null)
+        }
+
+        if (wrongWhenClosed || wrongWhenOpen) {
+          if (mag >= INFO_COMMIT_WHEEL_ACC) {
+            releaseRubberBandSmooth({ wrongWay: true })
+            return
+          }
+          const tWrong = rubberWheelStrain01(mag)
+          if (wrongWhenClosed) {
+            setInfoRubberX(-tWrong * INFO_PREVIEW_WRONG_MAX_PX)
+            setInfoRubberStretchX(0)
+            setInfoRubberStretchY(0)
+          } else {
+            setInfoRubberX(0)
+            setInfoRubberStretchX(-tWrong * INFO_PREVIEW_WRONG_MAX_STRETCH_X)
+            setInfoRubberStretchY(0)
+          }
+          setInfoRubberLive(true)
+          setInfoRubberAxis('x')
+          clearInfoWheelIdleTimer()
+          infoWheelIdleTimerRef.current = window.setTimeout(() => {
+            infoWheelIdleTimerRef.current = null
+            releaseRubberBandSmooth({ wrongWay: true })
+          }, INFO_WHEEL_IDLE_MS)
+          return
+        }
+
+        if (!correctTowardOpen && !correctTowardClose) {
+          infoWheelAcc.current = 0
+          setInfoRubberX(0)
+          setInfoRubberStretchX(0)
+          setInfoRubberStretchY(0)
+          clearInfoWheelIdleTimer()
+          return
+        }
+
+        if (mag >= INFO_COMMIT_WHEEL_ACC) {
+          snapHorizontalRubber()
+          if (correctTowardOpen) openInfo()
+          else if (correctTowardClose) closeInfo()
+          return
+        }
+
+        const tRubber = rubberWheelStrain01(mag)
+        if (correctTowardOpen) {
+          setInfoRubberX(tRubber * INFO_PREVIEW_MAX_PX)
+          setInfoRubberStretchX(0)
+          setInfoRubberStretchY(0)
+        } else {
+          setInfoRubberX(0)
+          setInfoRubberStretchX(tRubber * INFO_PREVIEW_MAX_STRETCH_X)
+          setInfoRubberStretchY(0)
+        }
+        setInfoRubberLive(true)
+        setInfoRubberAxis('x')
+
+        clearInfoWheelIdleTimer()
+        infoWheelIdleTimerRef.current = window.setTimeout(() => {
+          infoWheelIdleTimerRef.current = null
+          releaseRubberBandSmooth({ wrongWay: false })
+        }, INFO_WHEEL_IDLE_MS)
         return
       }
 
       if (ay <= ax * VERTICAL_INTENT_RATIO) return
 
+      if (
+        wheelShouldDeferToInfoPanelScroll(
+          targetNode,
+          py,
+          projectInfoPanelRef.current,
+          isInfoOpenRef.current,
+        )
+      ) {
+        return
+      }
+
       e.preventDefault()
       infoWheelAcc.current = 0
-      wheelAcc.current.y += py
-      const towardShow = wheelAcc.current.y > 0
-      const step = towardShow ? RAIL_WHEEL_SHOW_EARLY : WHEEL_STEP
-      if (Math.abs(wheelAcc.current.y) < step) return
+      setInfoRubberX(0)
+      setInfoRubberStretchX(0)
+      setInfoRubberStretchY(0)
 
-      wheelAcc.current = { y: 0 }
-      if (towardShow) {
-        openInfo()
-      } else if (isInfoOpen) {
-        closeInfo()
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        infoWheelAccY.current += py
+        if (Math.abs(infoWheelAccY.current) < INFO_WHEEL_STEP) return
+        const acc = infoWheelAccY.current
+        infoWheelAccY.current = 0
+        /* Scroll down (positive py) opens; scroll up closes */
+        if (acc > 0 && !isInfoOpen) openInfo()
+        else if (acc < 0 && isInfoOpen) closeInfo()
+        return
       }
+
+      infoWheelAccY.current += py
+      const accY = infoWheelAccY.current
+      const magY = Math.abs(accY)
+      const open = isInfoOpenRef.current
+      const correctOpenInfo = !open && accY > 0
+      const correctCloseInfo = open && accY < 0
+      const wrongWhenClosedY = !open && accY < 0
+      const wrongWhenOpenY = open && accY > 0
+
+      const snapVerticalRubber = () => {
+        clearInfoWheelIdleTimer()
+        infoWheelAccY.current = 0
+        infoWheelAcc.current = 0
+        setInfoRubberLive(false)
+        setInfoRubberY(0)
+        setInfoRubberStretchY(0)
+        setInfoRubberX(0)
+        setInfoRubberStretchX(0)
+        setInfoRubberAxis(null)
+      }
+
+      if (wrongWhenClosedY || wrongWhenOpenY) {
+        if (magY >= INFO_COMMIT_WHEEL_ACC) {
+          releaseRubberBandSmooth({ wrongWay: true })
+          return
+        }
+        const tWrong = rubberWheelStrain01(magY)
+        if (wrongWhenClosedY) {
+          setInfoRubberY(tWrong * INFO_PREVIEW_WRONG_MAX_PY)
+          setInfoRubberStretchY(0)
+        } else {
+          setInfoRubberY(0)
+          setInfoRubberStretchY(-tWrong * INFO_PREVIEW_WRONG_MAX_STRETCH_Y)
+        }
+        setInfoRubberLive(true)
+        setInfoRubberAxis('y')
+        clearInfoWheelIdleTimer()
+        infoWheelIdleTimerRef.current = window.setTimeout(() => {
+          infoWheelIdleTimerRef.current = null
+          releaseRubberBandSmooth({ wrongWay: true })
+        }, INFO_WHEEL_IDLE_MS)
+        return
+      }
+
+      if (!correctOpenInfo && !correctCloseInfo) {
+        infoWheelAccY.current = 0
+        setInfoRubberY(0)
+        setInfoRubberStretchY(0)
+        clearInfoWheelIdleTimer()
+        return
+      }
+
+      if (magY >= INFO_COMMIT_WHEEL_ACC) {
+        snapVerticalRubber()
+        if (correctOpenInfo) openInfo()
+        else if (correctCloseInfo) closeInfo()
+        return
+      }
+
+      const tVert = rubberWheelStrain01(magY)
+      if (correctOpenInfo) {
+        setInfoRubberY(-tVert * INFO_PREVIEW_MAX_PY)
+        setInfoRubberStretchY(0)
+      } else {
+        setInfoRubberY(0)
+        setInfoRubberStretchY(tVert * INFO_PREVIEW_MAX_STRETCH_Y)
+      }
+      setInfoRubberLive(true)
+      setInfoRubberAxis('y')
+
+      clearInfoWheelIdleTimer()
+      infoWheelIdleTimerRef.current = window.setTimeout(() => {
+        infoWheelIdleTimerRef.current = null
+        releaseRubberBandSmooth({ wrongWay: false })
+      }, INFO_WHEEL_IDLE_MS)
     }
     window.addEventListener('wheel', onWheel, { passive: false })
-    return () => window.removeEventListener('wheel', onWheel)
-  }, [closeInfo, feedRailGapWheelImpulse, isInfoOpen, openInfo])
+    return () => {
+      window.removeEventListener('wheel', onWheel)
+      clearInfoWheelIdleTimer()
+    }
+  }, [
+    clearInfoWheelIdleTimer,
+    closeInfo,
+    feedRailGapWheelImpulse,
+    isAboutOpen,
+    isInfoOpen,
+    openInfo,
+    releaseRubberBandSmooth,
+  ])
 
   useEffect(() => {
     const finePointerQuery = window.matchMedia('(hover: hover) and (pointer: fine)')
@@ -758,6 +1640,11 @@ export default function App() {
         cursorEl.style.left = `${e.clientX}px`
         cursorEl.style.top = `${e.clientY}px`
       }
+      const aboutCursorEl = aboutCloseCursorRef.current
+      if (aboutCursorEl && isAboutOpen) {
+        aboutCursorEl.style.left = `${e.clientX}px`
+        aboutCursorEl.style.top = `${e.clientY}px`
+      }
 
       const target = e.target instanceof Node ? e.target : null
       const onStage =
@@ -767,15 +1654,13 @@ export default function App() {
 
       let zone: CursorZone = 'none'
       if (onStage) zone = 'stage'
-      else if (onRail) zone = 'rail'
+      else if (onRail) zone = 'none'
 
       let direction: CursorDirection = cursorUiRef.current.direction
       if (zone === 'stage') {
         const rect = stageWrapRef.current?.getBoundingClientRect()
         const centerX = rect ? rect.left + rect.width / 2 : window.innerWidth / 2
         direction = e.clientX < centerX ? 'left' : 'right'
-      } else if (zone === 'rail') {
-        direction = 'drag'
       }
 
       const proximityHidden = zone === 'none' ? false : isNearCursorHideTarget(e.clientX, e.clientY)
@@ -838,17 +1723,7 @@ export default function App() {
         cursorIdleTimer.current = null
       }
     }
-  }, [isNearCursorHideTarget])
-
-  useEffect(() => {
-    const el = cardRefs.current[projectIndex]
-    if (!el) return
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const behavior: ScrollBehavior =
-      reduceMotion || !railInitialScrollDone.current ? 'auto' : 'smooth'
-    railInitialScrollDone.current = true
-    el.scrollIntoView({ behavior, block: 'nearest', inline: 'center' })
-  }, [projectIndex])
+  }, [isAboutOpen, isNearCursorHideTarget])
 
   useLayoutEffect(() => {
     if (!isInfoOpen) {
@@ -867,7 +1742,9 @@ export default function App() {
     }
 
     let cancelled = false
-    const raf = requestAnimationFrame(() => {
+    let raf2 = 0
+
+    const measureRailStagger = () => {
       if (cancelled) return
       const rail = railRef.current
       if (!rail) return
@@ -892,12 +1769,25 @@ export default function App() {
         stagger[item.i] = order
       })
 
+      /* While the rail is still sliding in, rects often miss the viewport → no items → all delays stay 0. */
+      if (items.length === 0) {
+        for (let i = 0; i < n; i++) {
+          stagger[i] = i
+          visible[i] = true
+        }
+      }
+
       setRailStagger({ ready: true, stagger, visible })
+    }
+
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(measureRailStagger)
     })
 
     return () => {
       cancelled = true
-      cancelAnimationFrame(raf)
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
     }
   }, [isInfoOpen, projects.length])
 
@@ -922,71 +1812,214 @@ export default function App() {
   }, [assetIndex, canStep, goNext, projectIndex])
 
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLElement>) => {
+    if (isAboutOpen) return
     if (e.touches.length !== 1) return
-    const target = e.target as Node
-    if (railWrapRef.current?.contains(target)) return
-    const inProjectItemsZone =
-      stageWrapRef.current?.contains(target) === true || stageHitRef.current?.contains(target) === true
-    if (!inProjectItemsZone) return
     const touch = e.touches[0]
     touchStart.current = { x: touch.clientX, y: touch.clientY }
-    railTouchRevealStarted.current = false
-  }, [])
+  }, [isAboutOpen])
 
   const handleTouchMove = useCallback(
     (e: React.TouchEvent<HTMLElement>) => {
-      if (isInfoOpen || railTouchRevealStarted.current) return
+      if (isAboutOpen) return
       if (e.touches.length !== 1) return
       const target = e.target as Node
-      if (railWrapRef.current?.contains(target)) return
-      const inProjectItemsZone =
-        stageWrapRef.current?.contains(target) === true || stageHitRef.current?.contains(target) === true
-      if (!inProjectItemsZone) return
       const start = touchStart.current
       if (!start) return
       const touch = e.touches[0]
+      const deltaX = touch.clientX - start.x
       const deltaY = touch.clientY - start.y
-      if (deltaY > RAIL_TOUCH_SHOW_PX) {
-        railTouchRevealStarted.current = true
-        openInfo()
+      const absX = Math.abs(deltaX)
+      const absY = Math.abs(deltaY)
+      const isOnRail = railWrapRef.current?.contains(target) === true
+
+      // Keep horizontal drag behavior for rail, but allow vertical swipe anywhere.
+      if (isOnRail && absX >= absY && absX > 12) return
+
+      if (
+        touchVerticalShouldDeferToInfoPanelScroll(
+          target,
+          deltaY,
+          absX,
+          absY,
+          projectInfoPanelRef.current,
+          isInfoOpen,
+        )
+      ) {
+        return
       }
+
+      if (absX >= absY && absX > 12) {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+        setInfoRubberY(0)
+        setInfoRubberStretchY(0)
+        setInfoRubberLive(true)
+        setInfoRubberAxis('x')
+        if (!isInfoOpen && deltaX < 0) {
+          const t = Math.min(1, -deltaX / INFO_SWIPE_COMMIT_PX)
+          setInfoRubberX(t * INFO_PREVIEW_MAX_PX)
+          setInfoRubberStretchX(0)
+        } else if (isInfoOpen && deltaX > 0) {
+          const t = Math.min(1, deltaX / INFO_SWIPE_COMMIT_PX)
+          setInfoRubberX(0)
+          setInfoRubberStretchX(t * INFO_PREVIEW_MAX_STRETCH_X)
+        } else if (!isInfoOpen && deltaX > 0) {
+          const t = Math.min(1, deltaX / INFO_SWIPE_COMMIT_PX)
+          setInfoRubberX(-t * INFO_PREVIEW_WRONG_MAX_PX)
+          setInfoRubberStretchX(0)
+        } else if (isInfoOpen && deltaX < 0) {
+          const t = Math.min(1, -deltaX / INFO_SWIPE_COMMIT_PX)
+          setInfoRubberX(0)
+          setInfoRubberStretchX(-t * INFO_PREVIEW_WRONG_MAX_STRETCH_X)
+        } else {
+          setInfoRubberX(0)
+          setInfoRubberStretchX(0)
+        }
+        return
+      }
+
+      if (absY > absX && absY > 12) {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+        setInfoRubberX(0)
+        setInfoRubberStretchX(0)
+        setInfoRubberLive(true)
+        setInfoRubberAxis('y')
+        /* Swipe down opens (translate lift); swipe up closes (stretch, top pinned) */
+        if (!isInfoOpen && deltaY > 0) {
+          const t = Math.min(1, deltaY / INFO_SWIPE_COMMIT_PY)
+          setInfoRubberY(-t * INFO_PREVIEW_MAX_PY)
+          setInfoRubberStretchY(0)
+        } else if (isInfoOpen && deltaY < 0) {
+          const t = Math.min(1, -deltaY / INFO_SWIPE_COMMIT_PY)
+          setInfoRubberY(0)
+          setInfoRubberStretchY(t * INFO_PREVIEW_MAX_STRETCH_Y)
+        } else if (!isInfoOpen && deltaY < 0) {
+          const t = Math.min(1, -deltaY / INFO_SWIPE_COMMIT_PY)
+          setInfoRubberY(t * INFO_PREVIEW_WRONG_MAX_PY)
+          setInfoRubberStretchY(0)
+        } else if (isInfoOpen && deltaY > 0) {
+          const t = Math.min(1, deltaY / INFO_SWIPE_COMMIT_PY)
+          setInfoRubberY(0)
+          setInfoRubberStretchY(-t * INFO_PREVIEW_WRONG_MAX_STRETCH_Y)
+        } else {
+          setInfoRubberY(0)
+          setInfoRubberStretchY(0)
+        }
+        return
+      }
+
+      if (absX <= 12 && absY <= 12) return
     },
-    [isInfoOpen, openInfo],
+    [isAboutOpen, isInfoOpen],
   )
 
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent<HTMLElement>) => {
+      if (isAboutOpen) return
       const start = touchStart.current
       touchStart.current = null
       if (!start || e.changedTouches.length === 0) return
-      if (railWrapRef.current?.contains(e.target as Node)) return
 
       const touch = e.changedTouches[0]
       const deltaX = touch.clientX - start.x
       const deltaY = touch.clientY - start.y
       const absX = Math.abs(deltaX)
       const absY = Math.abs(deltaY)
+
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      const endTarget = e.target instanceof Node ? e.target : null
+
+      if (absY > absX && absY >= 12) {
+        if (
+          touchEndVerticalIsPanelScrollNotClose(
+            deltaY,
+            absX,
+            absY,
+            endTarget,
+            projectInfoPanelRef.current,
+            isInfoOpen,
+          )
+        ) {
+          releaseRubberBandSmooth()
+          return
+        }
+        if (reducedMotion) {
+          setInfoRubberLive(false)
+          setInfoRubberY(0)
+          setInfoRubberStretchY(0)
+          setInfoRubberX(0)
+          setInfoRubberStretchX(0)
+          setInfoRubberAxis(null)
+          if (absY >= SWIPE_STEP) {
+            if (!isInfoOpen && deltaY > SWIPE_STEP) openInfo()
+            else if (isInfoOpen && deltaY < -SWIPE_STEP) closeInfo()
+          }
+          return
+        }
+        if (absY < INFO_SWIPE_COMMIT_PY) {
+          releaseRubberBandSmooth()
+        } else {
+          if (!isInfoOpen && deltaY > INFO_SWIPE_COMMIT_PY) openInfo()
+          else if (isInfoOpen && deltaY < -INFO_SWIPE_COMMIT_PY) closeInfo()
+        }
+        return
+      }
+
+      if (absX >= absY && absX >= 12) {
+        if (reducedMotion) {
+          setInfoRubberLive(false)
+          if (absX >= SWIPE_STEP && absX >= absY) {
+            if (!isInfoOpen && deltaX < -SWIPE_STEP) openInfo()
+            else if (isInfoOpen && deltaX > SWIPE_STEP) closeInfo()
+          }
+          setInfoRubberX(0)
+          setInfoRubberStretchX(0)
+          setInfoRubberY(0)
+          setInfoRubberStretchY(0)
+          setInfoRubberAxis(null)
+          return
+        }
+        if (absX < INFO_SWIPE_COMMIT_PX || absX < absY) {
+          releaseRubberBandSmooth()
+          return
+        }
+        if (!isInfoOpen && deltaX < -INFO_SWIPE_COMMIT_PX) openInfo()
+        else if (isInfoOpen && deltaX > INFO_SWIPE_COMMIT_PX) closeInfo()
+        return
+      }
+
       if (Math.max(absX, absY) < SWIPE_STEP) return
 
       if (absX > absY) {
-        if (!isInfoOpen && deltaX > SWIPE_STEP) {
+        if (!isInfoOpen && deltaX < -SWIPE_STEP) {
           openInfo()
           return
         }
 
-        if (isInfoOpen && deltaX < -SWIPE_STEP) {
+        if (isInfoOpen && deltaX > SWIPE_STEP) {
           closeInfo()
           return
         }
       } else {
-        if (deltaY < 0) {
+        if (
+          touchEndVerticalIsPanelScrollNotClose(
+            deltaY,
+            absX,
+            absY,
+            endTarget,
+            projectInfoPanelRef.current,
+            isInfoOpen,
+          )
+        ) {
+          return
+        }
+        if (deltaY > 0) {
+          if (!isInfoOpen) openInfo()
+        } else if (deltaY < 0) {
           if (isInfoOpen) closeInfo()
-        } else {
-          openInfo()
         }
       }
     },
-    [closeInfo, isInfoOpen, openInfo],
+    [closeInfo, isAboutOpen, isInfoOpen, openInfo, releaseRubberBandSmooth],
   )
 
   const handleRailPointerDown = useCallback(
@@ -1082,7 +2115,6 @@ export default function App() {
     [project.description],
   )
 
-  const cursorGlyph = cursorUi.direction === 'left' ? '←' : cursorUi.direction === 'right' ? '→' : '↔'
   const cursorClassName = [
     'customCursor',
     cursorUi.zone !== 'none' ? 'customCursor--visible' : '',
@@ -1095,20 +2127,84 @@ export default function App() {
 
   return (
     <div
-      className={`shell ${isInfoOpen ? 'shell--info' : ''}`}
+      ref={shellRef}
+      className={`shell ${isInfoOpen ? 'shell--info' : ''} ${isAboutOpen ? 'shell--about' : ''}`}
+      style={
+        {
+          '--info-rubber-x': `${infoRubberX}px`,
+          '--info-rubber-y': `${infoRubberY}px`,
+          '--info-rubber-stretch-x': String(infoRubberStretchX),
+          '--info-rubber-stretch-y': String(infoRubberStretchY),
+          '--info-rubber-stretch-rail-y': `${
+            infoRubberStretchX * INFO_STRETCH_RAIL_PULL_PX +
+            infoRubberStretchY * INFO_STRETCH_RAIL_PULL_FROM_STRETCH_Y_PX +
+            infoRubberX * INFO_WRONG_X_RAIL_PULL_RATIO
+          }px`,
+          ...(infoRubberReleaseTransformDur
+            ? { '--info-rubber-transform-dur': infoRubberReleaseTransformDur }
+            : {}),
+        } as React.CSSProperties
+      }
+      data-info-rubber-live={infoRubberLive ? 'true' : undefined}
+      data-info-rubber-wrong-release={infoRubberWrongRelease ? 'true' : undefined}
+      data-info-rubber-correct-release={infoRubberCorrectRelease ? 'true' : undefined}
+      data-info-rubber-axis={infoRubberAxis ?? undefined}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
       <div className="fullBleed">
+        <div className="fullBleedInner">
+        {/* Panel before stage so row order stays info | stage without flex order (fixes panel jumping right when closing). */}
+        <aside
+          id="project-info-panel"
+          ref={projectInfoPanelRef}
+          className="projectInfoPanel"
+          aria-hidden={!isInfoOpen}
+        >
+          <div className="projectInfoInner">
+            <TypographyRevealLines as="h2" variant="title" text={project.label} className="projectInfoTitle" />
+            <ProjectInfoBody
+              key={`${project.id}-desc-0`}
+              className="projectInfoBody"
+              text={infoDescription[0]}
+            />
+            {infoDescription[1] ? (
+              <ProjectInfoBody
+                key={`${project.id}-desc-1`}
+                className="projectInfoBody"
+                text={infoDescription[1]}
+              />
+            ) : null}
+          </div>
+        </aside>
+
         <section
           className="stageMediaWrap"
           ref={stageWrapRef}
           aria-label={`Project preview for ${project.label}`}
+          onClick={(e) => {
+            if (!canStep) return
+            const rect = e.currentTarget.getBoundingClientRect()
+            const centerX = rect.left + rect.width / 2
+            if (e.clientX < centerX) goPrev()
+            else goNext()
+          }}
         >
           <div className="stageMedia">
             {asset && (
-              <MediaView key={`${project.id}-${assetIndex}`} media={asset} fit="cover" className="stageFill" />
+              <Squircle
+                key={`${project.id}-${assetIndex}`}
+                cornerRadius={Math.max(0, stageCornerRadius)}
+                cornerSmoothing={stageCornerRadius > 0.5 ? 1 : 0}
+                className="stageMediaSquircle"
+              >
+                <MediaView media={asset} fit="cover" className="stageFill" />
+                <SquircleMediaStroke
+                  cornerRadius={Math.max(0, stageCornerRadius)}
+                  cornerSmoothing={stageCornerRadius > 0.5 ? 1 : 0}
+                />
+              </Squircle>
             )}
             <div className="storyMeter" aria-hidden>
               {gallery.map((_, i) => {
@@ -1120,6 +2216,7 @@ export default function App() {
                     className={`storySegment ${active ? 'storySegment--active' : ''} ${done ? 'storySegment--done' : ''}`}
                   >
                     <span
+                      key={`${project.id}-storyfill-${i}-${active ? assetIndex : 'idle'}`}
                       className={`storyFill ${done ? 'storyFill--done' : ''} ${active ? 'storyFill--active' : ''}`}
                       style={active ? { animationDuration: `${STORY_DURATION_MS}ms` } : undefined}
                     />
@@ -1128,16 +2225,8 @@ export default function App() {
               })}
             </div>
           </div>
-
         </section>
-
-        <aside id="project-info-panel" className="projectInfoPanel" aria-hidden={!isInfoOpen}>
-          <div className="projectInfoInner">
-            <h2 className="projectInfoTitle">{project.label}</h2>
-            <p className="projectInfoBody">{infoDescription[0]}</p>
-            {infoDescription[1] ? <p className="projectInfoBody">{infoDescription[1]}</p> : null}
-          </div>
-        </aside>
+        </div>
       </div>
 
       {canStep && (
@@ -1158,44 +2247,132 @@ export default function App() {
       )}
 
       <header className="topBar">
-        <p className="identity">Franek Fuks, Designer</p>
+        <div className="topBarLead">
+          <p className="identity">Franek Fuks - Designer</p>
+          <button
+            type="button"
+            className={`identityDots ${isAboutOpen ? 'identityDots--active identityDots--stolen' : ''}`}
+            aria-label={isAboutOpen ? 'Close about overlay' : 'Open about overlay'}
+            aria-expanded={isAboutOpen}
+            aria-controls="about-overlay"
+            onClick={toggleAbout}
+            data-cursor-hide="true"
+          >
+            <span className="identityIconSwap" aria-hidden>
+              <svg
+                className="identityIcon identityIcon--info"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path d="M12 11.5V16.5" />
+                <path d="M12 7.51L12.01 7.49889" />
+                <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" />
+              </svg>
+              <svg
+                className="identityIcon identityIcon--close"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path d="M9.17218 14.8284L12.0006 12M14.829 9.17157L12.0006 12M12.0006 12L9.17218 9.17157M12.0006 12L14.829 14.8284" />
+                <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" />
+              </svg>
+            </span>
+          </button>
+        </div>
+        {isAboutOpen ? <p className="identityMeta identityMeta--center">{warsawTimeLabel}</p> : null}
 
         <div className="topRight">
-          <span className="projectTitle">{project.label}</span>
+          <span className="projectTitle" aria-hidden={isInfoOpen || isAboutOpen}>
+            {project.label}
+          </span>
         </div>
       </header>
+
+      {isAboutOpen ? (
+        <aside id="about-overlay" className="aboutOverlay aboutOverlay--open" aria-hidden={false} onClick={closeAbout}>
+          <div
+            className="aboutOverlayInner"
+            ref={aboutOverlayInnerRef}
+            onClick={(e) => {
+              e.stopPropagation()
+            }}
+          >
+            <TypographyRevealLines
+              as="p"
+              variant="body"
+              className="aboutOverlayBody"
+              text="I am Franek Fuks, a multidisciplinary designer focused on visual systems, digital products, and motion-forward experiences."
+            />
+            <TypographyRevealLines
+              as="p"
+              variant="body"
+              className="aboutOverlayBody"
+              text="Currently designing and building websites and brands for US-based startups at Tonik. Open for various freelance projects; contact me at franek.fuks@gmail.com."
+              linkInLine={{ match: 'franek.fuks@gmail.com', href: 'mailto:franek.fuks@gmail.com' }}
+            />
+          </div>
+          <AboutInfiniteCarousel
+            items={aboutCarouselItems}
+            revealVersion={aboutRevealVersion}
+            active={isAboutOpen}
+          />
+          <p className="aboutOverlayFooterNote">
+            All rights reserved 2026 © Franek Fuks
+          </p>
+          <p className="aboutOverlayFooterHint">click anywhere to close</p>
+        </aside>
+      ) : null}
 
       <footer
         className="railWrap"
         ref={railWrapRef}
-        data-hidden={!isInfoOpen}
+        data-info-open={isInfoOpen}
         data-dragging={isRailDragging}
       >
-        <p className={`railHint ${!isInfoOpen ? 'railHint--visible' : ''}`} aria-hidden={isInfoOpen}>
-          <span className="railHintChevron" aria-hidden>
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M18 15l-6-6-6 6"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </span>
-          <span className="railHintLabel">swipe up for more</span>
-        </p>
-        <div
-          className="rail"
-          ref={railRef}
-          data-stagger-ready={railStagger.ready}
-          onPointerDown={handleRailPointerDown}
-          onPointerMove={handleRailPointerMove}
-          onPointerUp={handleRailPointerUp}
-          onPointerCancel={handleRailPointerCancel}
-          onPointerLeave={handleRailPointerLeave}
-        >
-          <div className="railTrack" ref={railTrackRef} role="list">
+        <div className="railWrapSlide" data-hidden={!isInfoOpen}>
+          <div className="railWrapRubber">
+            <p className={`railHint ${!isInfoOpen ? 'railHint--visible' : ''}`} aria-hidden={isInfoOpen}>
+              <span className="railHintChevron" aria-hidden>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M6 15L12 9L18 15"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+              <span className="railHintLabel">swipe down for more</span>
+            </p>
+            <div
+              className="rail"
+              ref={railRef}
+              data-stagger-ready={railStagger.ready}
+              onPointerDown={handleRailPointerDown}
+              onPointerMove={handleRailPointerMove}
+              onPointerUp={handleRailPointerUp}
+              onPointerCancel={handleRailPointerCancel}
+              onPointerLeave={handleRailPointerLeave}
+            >
+              <div className="railTrack" ref={railTrackRef}>
+                <div
+                  ref={railFloatingDotRef}
+                  className="railFloatingDot"
+                  aria-hidden
+                  style={
+                    railDotAnimating
+                      ? undefined
+                      : { transform: `translate3d(${railDotTranslate.x}px, ${railDotTranslate.y}px, 0)` }
+                  }
+                />
+                <div className="railTrackList" role="list">
             {projects.map((p, i) => {
               const open = i === projectIndex
               return (
@@ -1203,7 +2380,6 @@ export default function App() {
                   key={p.id}
                   type="button"
                   role="listitem"
-                  data-cursor-hide="true"
                   ref={(node) => {
                     cardRefs.current[i] = node
                   }}
@@ -1225,19 +2401,65 @@ export default function App() {
                   aria-current={open ? 'true' : undefined}
                   aria-label={`${p.label}${open ? ', current project' : ''}`}
                 >
-                  <div className="thumb">
+                  <Squircle
+                    cornerRadius={PROJECT_MEDIA_RADIUS}
+                    cornerSmoothing={1}
+                    className="thumb"
+                  >
                     <MediaView media={p.cover} fit="cover" className="thumbMedia" variant="thumb" />
+                    <SquircleMediaStroke cornerRadius={PROJECT_MEDIA_RADIUS} cornerSmoothing={1} />
+                  </Squircle>
+                  <div className="cardTitleFrame">
+                    <span className="cardLabelRow">
+                      <span className="cardLabelDotSlot" aria-hidden>
+                        <span
+                          className="railDotAnchor"
+                          ref={(el) => {
+                            railDotAnchorRefs.current[i] = el
+                          }}
+                        />
+                      </span>
+                      <span className="cardLabel">{p.label}</span>
+                    </span>
                   </div>
-                  <span className="cardLabel">{p.label}</span>
                 </button>
               )
             })}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </footer>
 
-      <div ref={cursorElRef} className={cursorClassName} data-zone={cursorUi.zone} aria-hidden>
-        <span className="customCursorIcon">{cursorGlyph}</span>
+      <div
+        ref={cursorElRef}
+        className={cursorClassName}
+        data-zone={cursorUi.zone}
+        data-direction={cursorUi.direction}
+        aria-hidden
+      >
+        <span className="customCursorIcon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M3 12L21 12M21 12L12.5 3.5M21 12L12.5 20.5"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+      </div>
+      <div
+        ref={aboutCloseCursorRef}
+        className={`aboutCloseCursor ${isAboutOpen ? 'aboutCloseCursor--visible' : ''}`}
+        aria-hidden
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <path d="M9.17218 14.8284L12.0006 12M14.829 9.17157L12.0006 12M12.0006 12L9.17218 9.17157M12.0006 12L14.829 14.8284" />
+          <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" />
+        </svg>
       </div>
 
       <p className="visuallyHidden" aria-live="polite">

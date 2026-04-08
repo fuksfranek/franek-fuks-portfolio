@@ -13,44 +13,98 @@
   --stage-bg: #ffffff;
   --text: #2d3540;
   --text-strong: #10161f;
-  --text-muted: #5f6b78;
+  --text-muted: #707070;
   --thumb-bg: #bcc7cf;
   --thumb-active-bg: #f8f9fa;
   --nav-fab: #ffffff;
   --card-open-ring: rgba(16, 22, 31, 0.4);
   --card-open-shadow: rgba(0, 0, 0, 0.12);
-  --font-ui: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --hint-chip-bg: rgba(248, 249, 250, 0.72);
+  --hint-chip-border: rgba(255, 255, 255, 0.62);
+  --hint-chip-fg: rgba(16, 22, 31, 0.78);
+  --icon-stroke: #10161f;
+  /* Open rail thumb halo — matches page in light mode */
+  --rail-open-thumb-ring: var(--page-bg);
+  /* Cover squircle anti-alias gaps: media slightly larger than clip (see .stageFill, .thumbMedia, about carousel) */
+  --squircle-media-overscan: 1.035;
+  /* Inset ring on image frames (::after overlay — see App.css) */
+  --media-frame-border: rgba(255, 255, 255, 0.1);
+  /* Named stacks only (no system-ui on macOS — measurement mismatch with Pretext) */
+  --font-ui: Inter, Helvetica, Arial, sans-serif;
   --font-display: var(--font-ui);
-  /* Slightly tighter than default for denser UI copy */
-  --line-height: 1.32;
-  /* Damped, springy *feel* with zero overshoot: smooth ease-out tail (no y > 1) */
-  --ease-butter: cubic-bezier(0.17, 0.88, 0.32, 1);
+  /* Base typography scale — keep CSS in sync with Pretext font strings (e.g. "16px Inter") */
+  --font-size-base: 16px;
+  --font-size-small: 14px;
+  --font-size-large: 18px;
+  --font-size-h3: 20px;
+  --font-size-h2: 24px;
+  --font-size-h1: 32px;
+  /* Body: 1.5–1.6; use px line-height when pairing with Pretext layout() */
+  --line-height: 1.5;
+  --line-height-body-px: 24px;
+  /* Headings: 1.2–1.3 */
+  --line-height-heading: 1.25;
+  /* Rail/cards: standard decelerate — control points stay in [0,1] so no overshoot/bounce */
+  --ease-butter: cubic-bezier(0.4, 0, 0.2, 1);
+  /*
+   * animations.dev — ease-out-quart: ease-out for enter/exit, smooth deceleration.
+   * Control points stay in [0,1] (no overshoot). Avoids ease-out-expo’s long “fluid” tail / floaty end.
+   * Paired: view layout, rubber release, rail reveal, squircle JS (easeViewInsetY).
+   */
+  --ease-out-quart: cubic-bezier(0.165, 0.84, 0.44, 1);
+  --ease-view-inset: var(--ease-out-quart);
+  --ease-info-rubber-release: var(--ease-out-quart);
+  --ease-info-rubber-correct-snap: var(--ease-out-quart);
+  --duration-info-rubber-release: 0.45s;
+  --ease-info-rubber-squeeze-wrong: var(--ease-out-quart);
+  --duration-info-rubber-squeeze-wrong: 0.72s;
   --duration-view: 0.62s;
-  /* Layout / stage resize (info panel open/close): snappier than 0.72s */
-  --duration-view-resize: 0.56s;
+  /*
+   * Motion family — keep in sync:
+   * - Stage / project image + info panel + hit overlay (App.tsx VIEW_RESIZE_MS)
+   * - Bottom rail slide (--duration-rail-reveal → --duration-stage-info)
+   * - Rail cards, dots, story meter — shared where noted in App.css
+   */
+  --duration-stage-info: 0.3s;
+  --duration-view-resize: 0.42s;
+  /* Rail card hover: scale + opacity (fine pointer) — snappier than view resize */
+  --duration-rail-card-hover: 0.22s;
+  /* Rail cards rise-in when strip reveals — keep ≤ rail reveal so thumbs don’t lag the strip */
+  --duration-rail-card-enter: 0.38s;
+  /* Bottom rail slide: same length + easing as stage/info layout (VIEW_RESIZE_MS / --duration-stage-info) */
+  --duration-rail-reveal: var(--duration-stage-info);
+  --ease-rail-reveal: var(--ease-view-inset);
+  /* Rail dot slot width — match App.tsx RAIL_DOT_JUMP_MS */
+  --duration-rail-dot-jump: 420ms;
+  /* GSAP line reveal (App.tsx) — keep in the same ballpark */
+  --duration-line-reveal: 0.28s;
 
   /* Layout: full-bleed media + overlapping rail; hit strip avoids header/rail */
   /* Horizontal margin at the start/end of the project slider (scroll-safe flex spacers) */
   --rail-spacer: var(--space-6);
   --rail-thumb-h: clamp(7.5rem, 20vh, 12rem);
+  /* Stage (info) + rail project covers — same corner radius */
+  --project-media-radius: 20px;
   /* Fixed top bar: matches .topBar padding + identity row (16px × body line-height) */
   --top-bar-pad-y: var(--space-6);
   --top-bar-line-h: calc(1rem * var(--line-height));
   --header-bar-block-h: calc(var(--top-bar-pad-y) + var(--top-bar-line-h) + var(--top-bar-pad-y));
-  --story-meter-h: 24px;
+  /* Must match .storySegment height — used to vertically center dots with .topBar text row in full view */
+  --story-meter-h: 8px;
   /* Distance from viewport top to bottom edge of fixed header (safe area + bar) */
   --header-h: calc(env(safe-area-inset-top, 0px) + var(--header-bar-block-h));
-  /* Gap under thumb + up to 2 title lines at --line-height */
-  --rail-card-label-gap: 16px;
-  --rail-card-label-h: calc(2em * var(--line-height));
+  /* Gap under thumb + two lines of rail label at --font-size-small × --line-height */
+  --rail-card-label-gap: 12px;
+  --rail-card-label-h: calc(var(--font-size-small) * var(--line-height) * 2);
   /* Full height from viewport bottom: rail track (pad + thumb + gap + title + pad) + safe area */
+  /* Top term matches .railTrack padding-top (even inset with horizontal padding) */
   --rail-stack-h: calc(
-    env(safe-area-inset-bottom) + var(--space-4) + var(--rail-thumb-h) + var(--rail-card-label-gap) +
+    env(safe-area-inset-bottom) + var(--space-6) + var(--rail-thumb-h) + var(--rail-card-label-gap) +
       var(--rail-card-label-h) + var(--space-6)
   );
 
   font-family: var(--font-ui);
-  font-size: 16px;
+  font-size: var(--font-size-base);
   font-weight: 400;
   line-height: var(--line-height);
   letter-spacing: -0.011em;
@@ -58,6 +112,30 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  word-break: normal;
+  overflow-wrap: break-word;
+  line-break: auto;
+}
+
+/* Dark mode experiment — remove data-theme or set data-theme="light" to revert */
+html[data-theme='dark'] {
+  color-scheme: dark;
+  --page-bg: #000000;
+  --stage-bg: #000000;
+  --text: #c5cad3;
+  --text-strong: #eef1f6;
+  --text-muted: #8b929c;
+  --thumb-bg: #2a3038;
+  --thumb-active-bg: #161a20;
+  --nav-fab: #161a20;
+  --card-open-ring: rgba(238, 241, 246, 0.38);
+  --card-open-shadow: rgba(0, 0, 0, 0.55);
+  --hint-chip-bg: rgba(22, 26, 32, 0.88);
+  --hint-chip-border: rgba(255, 255, 255, 0.1);
+  --hint-chip-fg: rgba(235, 238, 244, 0.9);
+  --icon-stroke: #eef1f6;
+  /* Visible on #000 — page ring would disappear otherwise */
+  --rail-open-thumb-ring: rgba(255, 255, 255, 0.22);
 }
 
 *,
@@ -68,16 +146,21 @@
 
 button,
 input,
-textarea,
 select {
   font: inherit;
+}
+
+textarea {
+  font: inherit;
+  white-space: pre-wrap;
 }
 
 body {
   margin: 0;
   overflow: hidden;
   font: inherit;
-  background: #ffffff;
+  background: var(--page-bg);
+  white-space: normal;
 }
 
 #root {
