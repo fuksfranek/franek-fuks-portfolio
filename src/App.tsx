@@ -11,7 +11,6 @@ import type { Media } from './data/projects'
 import { defaultProjectDescription, projects } from './data/projects'
 import { ProjectInfoBody } from './ProjectInfoBody'
 import { TypographyRevealLines } from './TypographyRevealLines'
-import { AboutInfiniteCarousel } from './AboutInfiniteCarousel'
 import { SquircleMediaStroke } from './SquircleMediaStroke'
 import { Squircle } from '@squircle-js/react'
 import './App.css'
@@ -22,7 +21,7 @@ const USE_COLOR_MEDIA_PLACEHOLDERS = false
 const PROJECT_MEDIA_RADIUS = 20
 /** Matches `.cardLabelDot` / `.railDotAnchor` in App.css */
 const RAIL_DOT_SIZE_PX = 10
-const RAIL_DOT_JUMP_MS = 420
+const RAIL_DOT_JUMP_MS = 300
 
 /**
  * Dot is `position:absolute` on `.railTrack` (inside the horizontal scroll content), so it moves
@@ -56,8 +55,8 @@ function buildRailDotJumpKeyframes(
 ) {
   const cx = (start.x + end.x) / 2
   const dx = Math.abs(end.x - start.x)
-  /* Tall arc (y increases downward): smaller cy = higher on screen. OK if path crosses card thumbs. */
-  const arcH = Math.min(260, dx * 0.48 + 52)
+  /* Subtle arc — lower amplitude than before for calmer dot motion */
+  const arcH = Math.min(140, dx * 0.3 + 34)
   const cy = Math.min(start.y, end.y) - arcH
   const keyframes: { transform: string }[] = []
   for (let i = 0; i <= steps; i += 1) {
@@ -68,12 +67,12 @@ function buildRailDotJumpKeyframes(
   }
   return keyframes
 }
-/** Matches `--duration-stage-info` (0.3s) — stage squircle + info layout only */
-const VIEW_RESIZE_MS = 300
-/** Matches `animation-delay: stagger * (--duration-stage-info / 6.176)` on `.card[data-rail-enter='on']` */
-const RAIL_STAGGER_TIME_DIVISOR = 6.176
+/** Matches `--duration-stage-info` — stage squircle + info layout only */
+const VIEW_RESIZE_MS = 240
+/** Matches `animation-delay: stagger * (--duration-stage-info / 10)` on `.card[data-rail-enter='on']` */
+const RAIL_STAGGER_TIME_DIVISOR = 10
 /** Matches `--duration-rail-card-enter` in index.css */
-const RAIL_CARD_ENTER_MS = 380
+const RAIL_CARD_ENTER_MS = 280
 
 /** y at input time t for a CSS cubic-bezier(x1,y1,x2,y2) easing curve */
 function cssBezierYAtT(t: number, x1: number, y1: number, x2: number, y2: number) {
@@ -91,9 +90,9 @@ function cssBezierYAtT(t: number, x1: number, y1: number, x2: number, y2: number
   return bezierY(u, y1, y2)
 }
 
-/** Matches `--ease-view-inset` / `--ease-out-quart` — same curve as padding / panel / hit overlay */
+/** Matches `--ease-view-inset` / `--ease-out-cubic` — same curve as padding / panel / hit overlay */
 function easeViewInsetY(t: number) {
-  return cssBezierYAtT(t, 0.165, 0.84, 0.44, 1)
+  return cssBezierYAtT(t, 0.215, 0.61, 0.355, 1)
 }
 
 function bezierX(u: number, x1: number, x2: number) {
@@ -228,11 +227,11 @@ const RUBBER_WHEEL_DENOM = INFO_COMMIT_WHEEL_ACC - INFO_RUBBER_WHEEL_DEAD_ZONE
 const INFO_WHEEL_IDLE_MS = 260
 /** Release length scales with how far rubber was pulled (strain 0→1) — keeps motion tied to input */
 /** Correct-direction preview release: short snap with ease-out only (no long “ease back”) */
-const INFO_RUBBER_CORRECT_RELEASE_MS_MIN = 70
-const INFO_RUBBER_CORRECT_RELEASE_MS_MAX = 220
-const INFO_RUBBER_WRONG_RELEASE_MS_MIN = 160
-const INFO_RUBBER_WRONG_RELEASE_MS_MAX = 580
-/** Touch vertical swipe (px) to commit info open/close — mirrors trackpad scroll thresholds */
+const INFO_RUBBER_CORRECT_RELEASE_MS_MIN = 50
+const INFO_RUBBER_CORRECT_RELEASE_MS_MAX = 150
+const INFO_RUBBER_WRONG_RELEASE_MS_MIN = 100
+const INFO_RUBBER_WRONG_RELEASE_MS_MAX = 360
+/** Touch vertical swipe (px) to commit info — phone: swipe up opens, swipe down closes (threshold only; desktop wheel unchanged) */
 const INFO_SWIPE_COMMIT_PY = 88
 
 /**
@@ -305,7 +304,7 @@ function touchVerticalShouldDeferToInfoPanelScroll(
   return false
 }
 
-/** Avoid treating panel scroll as swipe-to-close on finger lift. */
+/** Avoid treating in-panel scrolling as swipe-to-close on finger lift (close = swipe down / deltaY > 0). */
 function touchEndVerticalIsPanelScrollNotClose(
   deltaY: number,
   absX: number,
@@ -318,7 +317,10 @@ function touchEndVerticalIsPanelScrollNotClose(
   if (panel.scrollHeight <= panel.clientHeight + 1) return false
   if (absY <= absX || absY < 12) return false
   const atTop = panel.scrollTop <= 0
-  return deltaY < 0 && !atTop
+  const atBottom = panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 1
+  if (deltaY < 0 && !atTop) return true
+  if (deltaY > 0 && !atBottom) return true
+  return false
 }
 const RAIL_WHEEL_X_MIN = 1.5
 const RAIL_HORIZONTAL_RATIO = 0.65
@@ -328,9 +330,9 @@ const DRAG_START_PX = 8
 /** px/ms; release below this uses no inertial scroll */
 const RAIL_MOMENTUM_MIN_VELOCITY = 0.028
 /** Extra carry so flicks feel responsive */
-const RAIL_MOMENTUM_BOOST = 1.22
+const RAIL_MOMENTUM_BOOST = 1.08
 /** Per ~16ms frame; used with delta-time for frame-rate independence */
-const RAIL_MOMENTUM_FRICTION = 0.895
+const RAIL_MOMENTUM_FRICTION = 0.88
 /** EMA blend for pointer velocity samples */
 const RAIL_VELOCITY_SMOOTH = 0.55
 const RAIL_MOMENTUM_STOP = 0.012
@@ -357,19 +359,19 @@ const CURSOR_IDLE_MS = 1300
 const CURSOR_HIDE_DISTANCE = 68
 
 /* ─────────────────────────────────────────────────────────
- * ANIMATION STORYBOARD — shell / portfolio view
+ * ANIMATION STORYBOARD — shell / portfolio view (calm / low-bounce)
  *
  *      0ms   stage shows project asset; story meter cycles ~STORY_DURATION_MS
- *    280ms   info + about copy lines stagger in (GSAP) when overlay opens
- *    300ms   squircle radius + info layout + rail reveal (VIEW_RESIZE_MS / --duration-stage-info)
- *    380ms   rail cards finish rise-in (RAIL_CARD_ENTER_MS)
- *    420ms   floating dot arc between thumbs (RAIL_DOT_JUMP_MS)
+ *    220ms   info + about copy lines ease in (GSAP, light stagger)
+ *    240ms   squircle radius + info layout + rail reveal (VIEW_RESIZE_MS)
+ *    280ms   rail cards finish rise-in (RAIL_CARD_ENTER_MS)
+ *    300ms   floating dot arc between thumbs (RAIL_DOT_JUMP_MS)
  *
- * Info input: scroll / swipe down opens; up closes (touch mirrors vertical wheel; no horizontal touch).
+ * Info input: trackpad scroll down opens / up closes; phone: swipe up opens, swipe down closes (no horizontal touch).
  * ───────────────────────────────────────────────────────── */
 const TIMING = {
-  lineRevealMs: 280,
-  aboutLineRevealDelayMs: 60,
+  lineRevealMs: 220,
+  aboutLineRevealDelayMs: 40,
   stageInfoMs: VIEW_RESIZE_MS,
   railCardEnterMs: RAIL_CARD_ENTER_MS,
   railDotJumpMs: RAIL_DOT_JUMP_MS,
@@ -650,10 +652,10 @@ export default function App() {
 
       railDotAnimLockRef.current = true
       setRailDotAnimating(true)
-      const keyframes = buildRailDotJumpKeyframes(start, end, 24)
+      const keyframes = buildRailDotJumpKeyframes(start, end, 16)
       const anim = dot.animate(keyframes, {
         duration: RAIL_DOT_JUMP_MS,
-        easing: 'cubic-bezier(0.165, 0.84, 0.44, 1)',
+        easing: 'cubic-bezier(0.215, 0.61, 0.355, 1)',
         fill: 'forwards',
       })
       railDotAnimRef.current = anim
@@ -1028,19 +1030,6 @@ export default function App() {
     return () => window.clearInterval(timer)
   }, [])
 
-  const aboutCarouselItems = useMemo(
-    () =>
-      projects
-        .map((p) => {
-          if (p.cover.kind === 'image') return { id: p.id, src: p.cover.src, alt: p.cover.alt }
-          if (p.cover.poster) return { id: p.id, src: p.cover.poster, alt: `${p.label} poster` }
-          return null
-        })
-        .filter((item): item is { id: string; src: string; alt: string } => item !== null)
-        .slice(0, 9),
-    [],
-  )
-
   useEffect(() => {
     if (!isInfoOpen) return
     if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
@@ -1056,13 +1045,13 @@ export default function App() {
         void import('gsap').then(({ gsap }) => {
           if (disposed) return
           gsap.killTweensOf(lines)
-          gsap.set(lines, { autoAlpha: 0, y: 6 })
+          gsap.set(lines, { autoAlpha: 0, y: 4 })
           gsap.to(lines, {
             autoAlpha: 1,
             y: 0,
             duration: TIMING.lineRevealMs / 1000,
-            ease: 'power2.out',
-            stagger: 0.018,
+            ease: 'power1.out',
+            stagger: 0.01,
             overwrite: 'auto',
           })
         })
@@ -1090,13 +1079,13 @@ export default function App() {
         void import('gsap').then(({ gsap }) => {
           if (disposed) return
           gsap.killTweensOf(lines)
-          gsap.set(lines, { autoAlpha: 0, y: 6 })
+          gsap.set(lines, { autoAlpha: 0, y: 4 })
           gsap.to(lines, {
             autoAlpha: 1,
             y: 0,
             duration: TIMING.lineRevealMs / 1000,
-            ease: 'power2.out',
-            stagger: 0.018,
+            ease: 'power1.out',
+            stagger: 0.01,
             delay: TIMING.aboutLineRevealDelayMs / 1000,
             overwrite: 'auto',
           })
@@ -1872,21 +1861,21 @@ export default function App() {
         setInfoRubberStretchX(0)
         setInfoRubberLive(true)
         setInfoRubberAxis('y')
-        /* Swipe down opens (same as trackpad scroll down); swipe up closes */
-        if (!isInfoOpen && deltaY > 0) {
-          const t = Math.min(1, deltaY / INFO_SWIPE_COMMIT_PY)
+        /* Phone: swipe up opens; swipe down closes (opposite of trackpad vertical wheel). */
+        if (!isInfoOpen && deltaY < 0) {
+          const t = Math.min(1, -deltaY / INFO_SWIPE_COMMIT_PY)
           setInfoRubberY(-t * INFO_PREVIEW_MAX_PY)
-          setInfoRubberStretchY(0)
-        } else if (isInfoOpen && deltaY < 0) {
-          const t = Math.min(1, -deltaY / INFO_SWIPE_COMMIT_PY)
-          setInfoRubberY(0)
-          setInfoRubberStretchY(t * INFO_PREVIEW_MAX_STRETCH_Y)
-        } else if (!isInfoOpen && deltaY < 0) {
-          const t = Math.min(1, -deltaY / INFO_SWIPE_COMMIT_PY)
-          setInfoRubberY(t * INFO_PREVIEW_WRONG_MAX_PY)
           setInfoRubberStretchY(0)
         } else if (isInfoOpen && deltaY > 0) {
           const t = Math.min(1, deltaY / INFO_SWIPE_COMMIT_PY)
+          setInfoRubberY(0)
+          setInfoRubberStretchY(t * INFO_PREVIEW_MAX_STRETCH_Y)
+        } else if (!isInfoOpen && deltaY > 0) {
+          const t = Math.min(1, deltaY / INFO_SWIPE_COMMIT_PY)
+          setInfoRubberY(t * INFO_PREVIEW_WRONG_MAX_PY)
+          setInfoRubberStretchY(0)
+        } else if (isInfoOpen && deltaY < 0) {
+          const t = Math.min(1, -deltaY / INFO_SWIPE_COMMIT_PY)
           setInfoRubberY(0)
           setInfoRubberStretchY(-t * INFO_PREVIEW_WRONG_MAX_STRETCH_Y)
         } else {
@@ -1939,16 +1928,16 @@ export default function App() {
           setInfoRubberStretchX(0)
           setInfoRubberAxis(null)
           if (absY >= SWIPE_STEP) {
-            if (!isInfoOpen && deltaY > SWIPE_STEP) openInfo()
-            else if (isInfoOpen && deltaY < -SWIPE_STEP) closeInfo()
+            if (!isInfoOpen && deltaY < -SWIPE_STEP) openInfo()
+            else if (isInfoOpen && deltaY > SWIPE_STEP) closeInfo()
           }
           return
         }
         if (absY < INFO_SWIPE_COMMIT_PY) {
           releaseRubberBandSmooth()
-        } else if (!isInfoOpen && deltaY > INFO_SWIPE_COMMIT_PY) {
+        } else if (!isInfoOpen && deltaY < -INFO_SWIPE_COMMIT_PY) {
           openInfo()
-        } else if (isInfoOpen && deltaY < -INFO_SWIPE_COMMIT_PY) {
+        } else if (isInfoOpen && deltaY > INFO_SWIPE_COMMIT_PY) {
           closeInfo()
         } else {
           releaseRubberBandSmooth()
@@ -2266,11 +2255,6 @@ export default function App() {
               linkInLine={{ match: 'franek.fuks@gmail.com', href: 'mailto:franek.fuks@gmail.com' }}
             />
           </div>
-          <AboutInfiniteCarousel
-            items={aboutCarouselItems}
-            revealVersion={aboutRevealVersion}
-            active={isAboutOpen}
-          />
           <p className="aboutOverlayFooterNote">
             All rights reserved 2026 © Franek Fuks
           </p>
@@ -2298,7 +2282,7 @@ export default function App() {
                   />
                 </svg>
               </span>
-              <span className="railHintLabel">swipe down for more</span>
+              <span className="railHintLabel">swipe up for more</span>
             </p>
             <div
               className="rail"

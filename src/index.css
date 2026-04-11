@@ -25,7 +25,7 @@
   --icon-stroke: #10161f;
   /* Open rail thumb halo — matches page in light mode */
   --rail-open-thumb-ring: var(--page-bg);
-  /* Cover squircle anti-alias gaps: media slightly larger than clip (see .stageFill, .thumbMedia, about carousel) */
+  /* Cover squircle anti-alias gaps: media slightly larger than clip (see .stageFill, .thumbMedia) */
   --squircle-media-overscan: 1.035;
   /* Inset ring on image frames (::after overlay — see App.css) */
   --media-frame-border: rgba(255, 255, 255, 0.1);
@@ -44,40 +44,36 @@
   --line-height-body-px: 24px;
   /* Headings: 1.2–1.3 */
   --line-height-heading: 1.25;
-  /* Rail/cards: standard decelerate — control points stay in [0,1] so no overshoot/bounce */
+  /* Material decelerate — paired with layout where a slightly mechanical feel is OK */
   --ease-butter: cubic-bezier(0.4, 0, 0.2, 1);
   /*
-   * animations.dev — ease-out-quart: ease-out for enter/exit, smooth deceleration.
-   * Control points stay in [0,1] (no overshoot). Avoids ease-out-expo’s long “fluid” tail / floaty end.
-   * Paired: view layout, rubber release, rail reveal, squircle JS (easeViewInsetY).
+   * Primary UI motion: ease-out-cubic (animations.dev) — shorter tail than quart, less “floaty”.
+   * Keep in [0,1] (no overshoot). Sync App.tsx easeViewInsetY + WAAPI easing strings.
    */
+  --ease-out-cubic: cubic-bezier(0.215, 0.61, 0.355, 1);
   --ease-out-quart: cubic-bezier(0.165, 0.84, 0.44, 1);
-  --ease-view-inset: var(--ease-out-quart);
-  --ease-info-rubber-release: var(--ease-out-quart);
-  --ease-info-rubber-correct-snap: var(--ease-out-quart);
-  --duration-info-rubber-release: 0.45s;
-  --ease-info-rubber-squeeze-wrong: var(--ease-out-quart);
-  --duration-info-rubber-squeeze-wrong: 0.72s;
-  --duration-view: 0.62s;
+  --ease-view-inset: var(--ease-out-cubic);
+  --ease-info-rubber-release: var(--ease-out-cubic);
+  --ease-info-rubber-correct-snap: var(--ease-out-cubic);
+  --duration-info-rubber-release: 0.32s;
+  --ease-info-rubber-squeeze-wrong: var(--ease-out-cubic);
+  --duration-info-rubber-squeeze-wrong: 0.48s;
+  --duration-view: 0.48s;
   /*
    * Motion family — keep in sync:
    * - Stage / project image + info panel + hit overlay (App.tsx VIEW_RESIZE_MS)
    * - Bottom rail slide (--duration-rail-reveal → --duration-stage-info)
-   * - Rail cards, dots, story meter — shared where noted in App.css
+   * - Rail stagger divisor: App.tsx RAIL_STAGGER_TIME_DIVISOR + App.css animation-delay calc
    */
-  --duration-stage-info: 0.3s;
-  --duration-view-resize: 0.42s;
-  /* Rail card hover: scale + opacity (fine pointer) — snappier than view resize */
-  --duration-rail-card-hover: 0.22s;
-  /* Rail cards rise-in when strip reveals — keep ≤ rail reveal so thumbs don’t lag the strip */
-  --duration-rail-card-enter: 0.38s;
-  /* Bottom rail slide: same length + easing as stage/info layout (VIEW_RESIZE_MS / --duration-stage-info) */
+  --duration-stage-info: 0.24s;
+  --duration-view-resize: 0.34s;
+  --duration-rail-card-hover: 0.18s;
+  --duration-rail-card-enter: 0.28s;
   --duration-rail-reveal: var(--duration-stage-info);
   --ease-rail-reveal: var(--ease-view-inset);
-  /* Rail dot slot width — match App.tsx RAIL_DOT_JUMP_MS */
-  --duration-rail-dot-jump: 420ms;
+  --duration-rail-dot-jump: 300ms;
   /* GSAP line reveal — matches App.tsx TIMING.lineRevealMs */
-  --duration-line-reveal: 0.28s;
+  --duration-line-reveal: 0.22s;
 
   /* Layout: full-bleed media + overlapping rail; hit strip avoids header/rail */
   /* Horizontal margin at the start/end of the project slider (scroll-safe flex spacers) */
