@@ -232,9 +232,7 @@ const INFO_RUBBER_CORRECT_RELEASE_MS_MIN = 70
 const INFO_RUBBER_CORRECT_RELEASE_MS_MAX = 220
 const INFO_RUBBER_WRONG_RELEASE_MS_MIN = 160
 const INFO_RUBBER_WRONG_RELEASE_MS_MAX = 580
-/** Touch horizontal swipe (px) to commit */
-const INFO_SWIPE_COMMIT_PX = 88
-/** Touch vertical swipe (px) to commit */
+/** Touch vertical swipe (px) to commit info open/close — mirrors trackpad scroll thresholds */
 const INFO_SWIPE_COMMIT_PY = 88
 
 /**
@@ -357,6 +355,26 @@ const RAIL_GAP_SPEED_CAP = 5.2
 const STORY_DURATION_MS = 4200
 const CURSOR_IDLE_MS = 1300
 const CURSOR_HIDE_DISTANCE = 68
+
+/* ─────────────────────────────────────────────────────────
+ * ANIMATION STORYBOARD — shell / portfolio view
+ *
+ *      0ms   stage shows project asset; story meter cycles ~STORY_DURATION_MS
+ *    280ms   info + about copy lines stagger in (GSAP) when overlay opens
+ *    300ms   squircle radius + info layout + rail reveal (VIEW_RESIZE_MS / --duration-stage-info)
+ *    380ms   rail cards finish rise-in (RAIL_CARD_ENTER_MS)
+ *    420ms   floating dot arc between thumbs (RAIL_DOT_JUMP_MS)
+ *
+ * Info input: scroll / swipe down opens; up closes (touch mirrors vertical wheel; no horizontal touch).
+ * ───────────────────────────────────────────────────────── */
+const TIMING = {
+  lineRevealMs: 280,
+  aboutLineRevealDelayMs: 60,
+  stageInfoMs: VIEW_RESIZE_MS,
+  railCardEnterMs: RAIL_CARD_ENTER_MS,
+  railDotJumpMs: RAIL_DOT_JUMP_MS,
+  storyAdvanceMs: STORY_DURATION_MS,
+} as const
 
 type ViewState = {
   projectIndex: number
@@ -1042,7 +1060,7 @@ export default function App() {
           gsap.to(lines, {
             autoAlpha: 1,
             y: 0,
-            duration: 0.28,
+            duration: TIMING.lineRevealMs / 1000,
             ease: 'power2.out',
             stagger: 0.018,
             overwrite: 'auto',
@@ -1076,10 +1094,10 @@ export default function App() {
           gsap.to(lines, {
             autoAlpha: 1,
             y: 0,
-            duration: 0.28,
+            duration: TIMING.lineRevealMs / 1000,
             ease: 'power2.out',
             stagger: 0.018,
-            delay: 0.06,
+            delay: TIMING.aboutLineRevealDelayMs / 1000,
             overwrite: 'auto',
           })
         })
@@ -1832,7 +1850,7 @@ export default function App() {
       const absY = Math.abs(deltaY)
       const isOnRail = railWrapRef.current?.contains(target) === true
 
-      // Keep horizontal drag behavior for rail, but allow vertical swipe anywhere.
+      // Rail: horizontal drag scrolls thumbnails; touch never drives info open/close on X.
       if (isOnRail && absX >= absY && absX > 12) return
 
       if (
@@ -1848,42 +1866,13 @@ export default function App() {
         return
       }
 
-      if (absX >= absY && absX > 12) {
-        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-        setInfoRubberY(0)
-        setInfoRubberStretchY(0)
-        setInfoRubberLive(true)
-        setInfoRubberAxis('x')
-        if (!isInfoOpen && deltaX < 0) {
-          const t = Math.min(1, -deltaX / INFO_SWIPE_COMMIT_PX)
-          setInfoRubberX(t * INFO_PREVIEW_MAX_PX)
-          setInfoRubberStretchX(0)
-        } else if (isInfoOpen && deltaX > 0) {
-          const t = Math.min(1, deltaX / INFO_SWIPE_COMMIT_PX)
-          setInfoRubberX(0)
-          setInfoRubberStretchX(t * INFO_PREVIEW_MAX_STRETCH_X)
-        } else if (!isInfoOpen && deltaX > 0) {
-          const t = Math.min(1, deltaX / INFO_SWIPE_COMMIT_PX)
-          setInfoRubberX(-t * INFO_PREVIEW_WRONG_MAX_PX)
-          setInfoRubberStretchX(0)
-        } else if (isInfoOpen && deltaX < 0) {
-          const t = Math.min(1, -deltaX / INFO_SWIPE_COMMIT_PX)
-          setInfoRubberX(0)
-          setInfoRubberStretchX(-t * INFO_PREVIEW_WRONG_MAX_STRETCH_X)
-        } else {
-          setInfoRubberX(0)
-          setInfoRubberStretchX(0)
-        }
-        return
-      }
-
-      if (absY > absX && absY > 12) {
+      if (absY >= absX && absY > 12) {
         if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
         setInfoRubberX(0)
         setInfoRubberStretchX(0)
         setInfoRubberLive(true)
         setInfoRubberAxis('y')
-        /* Swipe down opens (translate lift); swipe up closes (stretch, top pinned) */
+        /* Swipe down opens (same as trackpad scroll down); swipe up closes */
         if (!isInfoOpen && deltaY > 0) {
           const t = Math.min(1, deltaY / INFO_SWIPE_COMMIT_PY)
           setInfoRubberY(-t * INFO_PREVIEW_MAX_PY)
@@ -1906,8 +1895,6 @@ export default function App() {
         }
         return
       }
-
-      if (absX <= 12 && absY <= 12) return
     },
     [isAboutOpen, isInfoOpen],
   )
@@ -1928,7 +1915,9 @@ export default function App() {
       const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
       const endTarget = e.target instanceof Node ? e.target : null
 
-      if (absY > absX && absY >= 12) {
+      const verticalDominant = absY >= absX
+
+      if (verticalDominant && absY >= 12) {
         if (
           touchEndVerticalIsPanelScrollNotClose(
             deltaY,
@@ -1957,67 +1946,27 @@ export default function App() {
         }
         if (absY < INFO_SWIPE_COMMIT_PY) {
           releaseRubberBandSmooth()
-        } else {
-          if (!isInfoOpen && deltaY > INFO_SWIPE_COMMIT_PY) openInfo()
-          else if (isInfoOpen && deltaY < -INFO_SWIPE_COMMIT_PY) closeInfo()
-        }
-        return
-      }
-
-      if (absX >= absY && absX >= 12) {
-        if (reducedMotion) {
-          setInfoRubberLive(false)
-          if (absX >= SWIPE_STEP && absX >= absY) {
-            if (!isInfoOpen && deltaX < -SWIPE_STEP) openInfo()
-            else if (isInfoOpen && deltaX > SWIPE_STEP) closeInfo()
-          }
-          setInfoRubberX(0)
-          setInfoRubberStretchX(0)
-          setInfoRubberY(0)
-          setInfoRubberStretchY(0)
-          setInfoRubberAxis(null)
-          return
-        }
-        if (absX < INFO_SWIPE_COMMIT_PX || absX < absY) {
-          releaseRubberBandSmooth()
-          return
-        }
-        if (!isInfoOpen && deltaX < -INFO_SWIPE_COMMIT_PX) openInfo()
-        else if (isInfoOpen && deltaX > INFO_SWIPE_COMMIT_PX) closeInfo()
-        return
-      }
-
-      if (Math.max(absX, absY) < SWIPE_STEP) return
-
-      if (absX > absY) {
-        if (!isInfoOpen && deltaX < -SWIPE_STEP) {
+        } else if (!isInfoOpen && deltaY > INFO_SWIPE_COMMIT_PY) {
           openInfo()
-          return
-        }
-
-        if (isInfoOpen && deltaX > SWIPE_STEP) {
+        } else if (isInfoOpen && deltaY < -INFO_SWIPE_COMMIT_PY) {
           closeInfo()
-          return
+        } else {
+          releaseRubberBandSmooth()
         }
-      } else {
-        if (
-          touchEndVerticalIsPanelScrollNotClose(
-            deltaY,
-            absX,
-            absY,
-            endTarget,
-            projectInfoPanelRef.current,
-            isInfoOpen,
-          )
-        ) {
-          return
-        }
-        if (deltaY > 0) {
-          if (!isInfoOpen) openInfo()
-        } else if (deltaY < 0) {
-          if (isInfoOpen) closeInfo()
-        }
+        return
       }
+
+      if (absX > absY && absX >= 12) {
+        releaseRubberBandSmooth()
+        return
+      }
+
+      if (Math.max(absX, absY) < SWIPE_STEP) {
+        releaseRubberBandSmooth()
+        return
+      }
+
+      releaseRubberBandSmooth()
     },
     [closeInfo, isAboutOpen, isInfoOpen, openInfo, releaseRubberBandSmooth],
   )

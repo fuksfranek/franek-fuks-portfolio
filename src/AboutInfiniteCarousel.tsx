@@ -2,6 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SquircleMediaStroke } from './SquircleMediaStroke'
 import { Squircle } from '@squircle-js/react'
 
+/* ─────────────────────────────────────────────────────────
+ * ANIMATION STORYBOARD — about overlay carousel
+ *
+ *   follow  diagonal slot layout; wheel nudges target index (WHEEL_PIXELS_PER_CARD)
+ *   SNAP_IDLE_MS after last wheel → snap target to integer + ease (FOLLOW_EASING)
+ * ───────────────────────────────────────────────────────── */
+
 const WHEEL_PIXELS_PER_CARD = 340
 const SLOT_RADIUS = 6
 const DIAGONAL_X_PERCENT = 109

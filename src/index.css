@@ -76,7 +76,7 @@
   --ease-rail-reveal: var(--ease-view-inset);
   /* Rail dot slot width — match App.tsx RAIL_DOT_JUMP_MS */
   --duration-rail-dot-jump: 420ms;
-  /* GSAP line reveal (App.tsx) — keep in the same ballpark */
+  /* GSAP line reveal — matches App.tsx TIMING.lineRevealMs */
   --duration-line-reveal: 0.28s;
 
   /* Layout: full-bleed media + overlapping rail; hit strip avoids header/rail */
