@@ -10,9 +10,14 @@ export type Project = {
   cover: Media
   /** Full-viewport assets when this project is selected */
   gallery: Media[]
+  /** Shown above the title in the info panel; falls back to defaultProjectCategory */
+  category?: string
   /** Side panel copy when “info” is open; falls back to defaultProjectDescription */
   description?: string
 }
+
+/** Used when a project omits `category` */
+export const defaultProjectCategory = 'Web Design and No-Code Development'
 
 /** Used when a project omits `description` (two blocks separated by a blank line → two paragraphs in UI) */
 export const defaultProjectDescription =

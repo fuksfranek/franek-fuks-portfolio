@@ -8,7 +8,7 @@ import {
   useState,
 } from 'react'
 import type { Media } from './data/projects'
-import { defaultProjectDescription, projects } from './data/projects'
+import { defaultProjectCategory, defaultProjectDescription, projects } from './data/projects'
 import { ProjectInfoBody } from './ProjectInfoBody'
 import { TypographyRevealLines } from './TypographyRevealLines'
 import { SquircleMediaStroke } from './SquircleMediaStroke'
@@ -17,32 +17,11 @@ import './App.css'
 
 const USE_COLOR_MEDIA_PLACEHOLDERS = false
 
-const THEME_STORAGE_KEY = 'portfolio-theme'
-
-function readStoredTheme(): 'light' | 'dark' | null {
-  try {
-    const v = localStorage.getItem(THEME_STORAGE_KEY)
-    if (v === 'light' || v === 'dark') return v
-  } catch {
-    /* ignore */
-  }
-  return null
-}
-
-function getInitialTheme(): 'light' | 'dark' {
-  const stored = readStoredTheme()
-  if (stored) return stored
-  if (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-    return 'dark'
-  }
-  return 'light'
-}
-
 /** Matches `--project-media-radius` in index.css */
 const PROJECT_MEDIA_RADIUS = 20
 /** Matches `.cardLabelDot` / `.railDotAnchor` in App.css */
 const RAIL_DOT_SIZE_PX = 10
-const RAIL_DOT_JUMP_MS = 300
+const RAIL_DOT_JUMP_MS = 240
 
 /**
  * Dot is `position:absolute` on `.railTrack` (inside the horizontal scroll content), so it moves
@@ -76,8 +55,8 @@ function buildRailDotJumpKeyframes(
 ) {
   const cx = (start.x + end.x) / 2
   const dx = Math.abs(end.x - start.x)
-  /* Subtle arc — lower amplitude than before for calmer dot motion */
-  const arcH = Math.min(140, dx * 0.3 + 34)
+  /* Nearly straight path — tiny lift so motion reads as glide, not a bounce */
+  const arcH = Math.min(36, dx * 0.08 + 8)
   const cy = Math.min(start.y, end.y) - arcH
   const keyframes: { transform: string }[] = []
   for (let i = 0; i <= steps; i += 1) {
@@ -218,80 +197,14 @@ function MediaView({
 }
 
 const SWIPE_STEP = 42
-/** Legacy fallback when prefers-reduced-motion (no rubber preview) */
+/** prefers-reduced-motion: coarser wheel threshold before info open/close */
 const INFO_WHEEL_STEP = 56
-/** Horizontal wheel accumulation (px) to commit info open/close */
+/** Wheel accumulation (px) to commit info open/close (horizontal or vertical intent) */
 const INFO_COMMIT_WHEEL_ACC = 140
-/** Max horizontal rubber-band shift on .fullBleed (translateX) when info is closed */
-const INFO_PREVIEW_MAX_PX = 32
-/** Max horizontal stretch (scaleX delta, right origin) when info is open — no translate */
-const INFO_PREVIEW_MAX_STRETCH_X = 0.045
-/** How far the project rail shifts down (px) at full horizontal stretch — keeps slider in the gesture */
-const INFO_STRETCH_RAIL_PULL_PX = 440
-/** Same for vertical close stretch (scaleY, top pinned) */
-const INFO_STRETCH_RAIL_PULL_FROM_STRETCH_Y_PX = 440
-/** Max vertical stretch (scaleY delta, top origin) when info is open — close preview; no translateY */
-const INFO_PREVIEW_MAX_STRETCH_Y = 0.045
-/** Max vertical rubber-band shift on .fullBleed (translateY) when info is closed — open preview */
-const INFO_PREVIEW_MAX_PY = 28
-/** Wrong-way pinch/squeeze preview — kept subtle vs. commit direction */
-const INFO_PREVIEW_WRONG_MAX_PX = 11
-const INFO_PREVIEW_WRONG_MAX_STRETCH_X = 0.014
-const INFO_PREVIEW_WRONG_MAX_PY = 12
-const INFO_PREVIEW_WRONG_MAX_STRETCH_Y = 0.014
-/** Couple horizontal translate rubber to rail vertical nudge (wrong-way uses negative X) */
-const INFO_WRONG_X_RAIL_PULL_RATIO = 0.2
-/** Ignore wheel oscillation below this (px-equivalent) for rubber *visuals* — avoids end jitter */
-const INFO_RUBBER_WHEEL_DEAD_ZONE = 14
-const RUBBER_WHEEL_DENOM = INFO_COMMIT_WHEEL_ACC - INFO_RUBBER_WHEEL_DEAD_ZONE
-/** After last wheel event, wait before snap-back so trackpad tail noise doesn’t re-trigger rubber */
-const INFO_WHEEL_IDLE_MS = 260
-/** Release length scales with how far rubber was pulled (strain 0→1) — keeps motion tied to input */
-/** Correct-direction preview release: short snap with ease-out only (no long “ease back”) */
-const INFO_RUBBER_CORRECT_RELEASE_MS_MIN = 50
-const INFO_RUBBER_CORRECT_RELEASE_MS_MAX = 150
-const INFO_RUBBER_WRONG_RELEASE_MS_MIN = 100
-const INFO_RUBBER_WRONG_RELEASE_MS_MAX = 360
-/** Touch vertical swipe (px) to commit info — mirrors trackpad: swipe down opens, swipe up closes */
+/** Touch vertical swipe (px) to commit — swipe down opens, swipe up closes */
 const INFO_SWIPE_COMMIT_PY = 88
 
-/**
- * Wheel rubber preview: 0 until past dead zone, then **linear** in accumulated px (like spring displacement).
- * Avoids smoothstep “animation” feel vs scroll amount.
- */
-function rubberWheelStrain01(mag: number): number {
-  const m = Math.max(0, mag - INFO_RUBBER_WHEEL_DEAD_ZONE)
-  return Math.min(1, m / RUBBER_WHEEL_DENOM)
-}
-
-/** How far current rubber is pushed toward its per-direction max (0–1) — drives release duration. */
-function rubberReleaseStrain01(x: number, sx: number, sy: number, y: number): number {
-  const nx =
-    x <= 0 ? Math.abs(x) / INFO_PREVIEW_WRONG_MAX_PX : Math.abs(x) / INFO_PREVIEW_MAX_PX
-  const nsx =
-    sx < 0 ? Math.abs(sx) / INFO_PREVIEW_WRONG_MAX_STRETCH_X : Math.abs(sx) / INFO_PREVIEW_MAX_STRETCH_X
-  const nsy =
-    sy < 0 ? Math.abs(sy) / INFO_PREVIEW_WRONG_MAX_STRETCH_Y : Math.abs(sy) / INFO_PREVIEW_MAX_STRETCH_Y
-  const ny =
-    y > 0 ? Math.abs(y) / INFO_PREVIEW_WRONG_MAX_PY : Math.abs(y) / INFO_PREVIEW_MAX_PY
-  return Math.min(1, Math.max(0, nx, nsx, nsy, ny))
-}
-
-/** Opposite-scroll “squeeze” preview (negative X / negative stretch / wrong vertical). */
-function isWrongWayRubber(
-  x: number,
-  stretchX: number,
-  stretchY: number,
-  y: number,
-  infoOpen: boolean,
-): boolean {
-  if (stretchX < 0 || stretchY < 0) return true
-  if (x < 0) return true
-  if (!infoOpen && y > 0) return true
-  return false
-}
-
-/** Let native wheel scroll long copy in the info panel instead of closing / rubber. */
+/** Let native wheel scroll long copy in the info panel instead of closing. */
 function wheelShouldDeferToInfoPanelScroll(
   target: Node | null,
   py: number,
@@ -347,15 +260,15 @@ const DRAG_CLICK_SUPPRESS_MS = 220
 const DRAG_START_PX = 8
 /** px/ms; release below this uses no inertial scroll */
 const RAIL_MOMENTUM_MIN_VELOCITY = 0.028
-/** Extra carry so flicks feel responsive */
-const RAIL_MOMENTUM_BOOST = 1.08
+/** No velocity boost — avoids coasting that reads as a second “bounce” */
+const RAIL_MOMENTUM_BOOST = 1
 /** Per ~16ms frame; used with delta-time for frame-rate independence */
-const RAIL_MOMENTUM_FRICTION = 0.88
+const RAIL_MOMENTUM_FRICTION = 0.91
 /** EMA blend for pointer velocity samples */
 const RAIL_VELOCITY_SMOOTH = 0.55
 const RAIL_MOMENTUM_STOP = 0.012
 /** Extra space between cards at max intensity (px); smaller = less scroll/layout feedback */
-const RAIL_GAP_MAX_EXTRA_PX = 6
+const RAIL_GAP_MAX_EXTRA_PX = 3
 /** |scroll speed| (px/ms) that reaches ~full extra gap */
 const RAIL_GAP_SPEED_REF = 1.05
 /** Wheel delta magnitude (px) treated as a strong horizontal intent */
@@ -377,7 +290,7 @@ const CURSOR_IDLE_MS = 1300
 const CURSOR_HIDE_DISTANCE = 68
 
 /* ─────────────────────────────────────────────────────────
- * ANIMATION STORYBOARD — shell / portfolio view (calm / low-bounce)
+ * ANIMATION STORYBOARD — shell / portfolio view (ease-out layout; no rubber preview)
  *
  *      0ms   stage shows project asset; story meter cycles ~STORY_DURATION_MS
  *    220ms   info + about copy lines ease in (GSAP, light stagger)
@@ -499,20 +412,8 @@ export default function App() {
   })
   const [isInfoOpen, setIsInfoOpen] = useState(false)
   const [isAboutOpen, setIsAboutOpen] = useState(false)
-  const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme)
   const [warsawTimeLabel, setWarsawTimeLabel] = useState(() => formatWarsawTimeLabel())
   const [aboutRevealVersion, setAboutRevealVersion] = useState(0)
-  const [infoRubberX, setInfoRubberX] = useState(0)
-  const [infoRubberStretchX, setInfoRubberStretchX] = useState(0)
-  const [infoRubberStretchY, setInfoRubberStretchY] = useState(0)
-  const [infoRubberY, setInfoRubberY] = useState(0)
-  const [infoRubberLive, setInfoRubberLive] = useState(false)
-  const [infoRubberWrongRelease, setInfoRubberWrongRelease] = useState(false)
-  /** Correct-direction rubber return: snappier timing + CSS ease-out (mutually exclusive with wrong-release) */
-  const [infoRubberCorrectRelease, setInfoRubberCorrectRelease] = useState(false)
-  /** Inline `--info-rubber-transform-dur` while releasing — length follows deformation strain */
-  const [infoRubberReleaseTransformDur, setInfoRubberReleaseTransformDur] = useState<string | null>(null)
-  const [infoRubberAxis, setInfoRubberAxis] = useState<'x' | 'y' | null>(null)
   const [railStagger, setRailStagger] = useState<RailStaggerState>({
     ready: false,
     stagger: [],
@@ -528,9 +429,6 @@ export default function App() {
   })
   const infoWheelAcc = useRef(0)
   const infoWheelAccY = useRef(0)
-  const infoWheelIdleTimerRef = useRef<number | null>(null)
-  const infoRubberWrongReleaseClearTimerRef = useRef<number | null>(null)
-  const infoRubberSnapshotRef = useRef({ x: 0, sx: 0, sy: 0, y: 0 })
   const isInfoOpenRef = useRef(false)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
   const cursorElRef = useRef<HTMLDivElement>(null)
@@ -577,7 +475,6 @@ export default function App() {
   const stageWrapRef = useRef<HTMLElement>(null)
   const stageHitRef = useRef<HTMLDivElement>(null)
   const projectInfoPanelRef = useRef<HTMLElement | null>(null)
-  const shellRef = useRef<HTMLDivElement | null>(null)
   const railWrapRef = useRef<HTMLElement>(null)
   const railRef = useRef<HTMLDivElement>(null)
   const aboutOverlayInnerRef = useRef<HTMLDivElement | null>(null)
@@ -894,141 +791,20 @@ export default function App() {
     setIsRailDragging(false)
   }, [])
 
-  const clearInfoWheelIdleTimer = useCallback(() => {
-    if (infoWheelIdleTimerRef.current !== null) {
-      window.clearTimeout(infoWheelIdleTimerRef.current)
-      infoWheelIdleTimerRef.current = null
-    }
-  }, [])
-
-  const clearInfoRubberWrongReleaseTimer = useCallback(() => {
-    if (infoRubberWrongReleaseClearTimerRef.current !== null) {
-      window.clearTimeout(infoRubberWrongReleaseClearTimerRef.current)
-      infoRubberWrongReleaseClearTimerRef.current = null
-    }
-  }, [])
-
-  useEffect(() => {
-    infoRubberSnapshotRef.current = {
-      x: infoRubberX,
-      sx: infoRubberStretchX,
-      sy: infoRubberStretchY,
-      y: infoRubberY,
-    }
-  }, [infoRubberX, infoRubberStretchX, infoRubberStretchY, infoRubberY])
-
-  const releaseRubberBandSmooth = useCallback(
-    (opts?: { wrongWay?: boolean }) => {
-      const snap = infoRubberSnapshotRef.current
-      if (snap.x === 0 && snap.sx === 0 && snap.sy === 0 && snap.y === 0) {
-        clearInfoRubberWrongReleaseTimer()
-        setInfoRubberWrongRelease(false)
-        setInfoRubberCorrectRelease(false)
-        setInfoRubberReleaseTransformDur(null)
-        setInfoRubberLive(false)
-        setInfoRubberAxis(null)
-        return
-      }
-
-      if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        clearInfoWheelIdleTimer()
-        clearInfoRubberWrongReleaseTimer()
-        infoWheelAcc.current = 0
-        infoWheelAccY.current = 0
-        setInfoRubberWrongRelease(false)
-        setInfoRubberCorrectRelease(false)
-        setInfoRubberReleaseTransformDur(null)
-        setInfoRubberLive(false)
-        setInfoRubberX(0)
-        setInfoRubberStretchX(0)
-        setInfoRubberStretchY(0)
-        setInfoRubberY(0)
-        setInfoRubberAxis(null)
-        return
-      }
-
-      clearInfoWheelIdleTimer()
-      infoWheelAcc.current = 0
-      infoWheelAccY.current = 0
-
-      const wrongWay =
-        opts?.wrongWay ??
-        isWrongWayRubber(snap.x, snap.sx, snap.sy, snap.y, isInfoOpenRef.current)
-
-      clearInfoRubberWrongReleaseTimer()
-
-      const strain = rubberReleaseStrain01(snap.x, snap.sx, snap.sy, snap.y)
-      const minMs = wrongWay ? INFO_RUBBER_WRONG_RELEASE_MS_MIN : INFO_RUBBER_CORRECT_RELEASE_MS_MIN
-      const maxMs = wrongWay ? INFO_RUBBER_WRONG_RELEASE_MS_MAX : INFO_RUBBER_CORRECT_RELEASE_MS_MAX
-      const releaseMs = Math.round(minMs + strain * (maxMs - minMs))
-      setInfoRubberReleaseTransformDur(`${releaseMs}ms`)
-
-      setInfoRubberWrongRelease(wrongWay)
-      setInfoRubberCorrectRelease(!wrongWay)
-      setInfoRubberLive(false)
-
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          setInfoRubberX(0)
-          setInfoRubberStretchX(0)
-          setInfoRubberStretchY(0)
-          setInfoRubberY(0)
-          setInfoRubberAxis(null)
-          const clearMs = releaseMs + 100
-          infoRubberWrongReleaseClearTimerRef.current = window.setTimeout(() => {
-            infoRubberWrongReleaseClearTimerRef.current = null
-            setInfoRubberWrongRelease(false)
-            setInfoRubberCorrectRelease(false)
-            setInfoRubberReleaseTransformDur(null)
-          }, clearMs)
-        })
-      })
-    },
-    [clearInfoRubberWrongReleaseTimer, clearInfoWheelIdleTimer],
-  )
-
   const openInfo = useCallback(() => {
-    clearInfoWheelIdleTimer()
-    clearInfoRubberWrongReleaseTimer()
-    setInfoRubberWrongRelease(false)
-    setInfoRubberCorrectRelease(false)
-    setInfoRubberReleaseTransformDur(null)
     infoWheelAcc.current = 0
     infoWheelAccY.current = 0
-    setInfoRubberX(0)
-    setInfoRubberStretchX(0)
-    setInfoRubberStretchY(0)
-    setInfoRubberY(0)
-    setInfoRubberLive(false)
-    setInfoRubberAxis(null)
     setIsInfoOpen(true)
-  }, [clearInfoRubberWrongReleaseTimer, clearInfoWheelIdleTimer])
+  }, [])
 
   const closeInfo = useCallback(() => {
-    clearInfoWheelIdleTimer()
-    clearInfoRubberWrongReleaseTimer()
-    setInfoRubberWrongRelease(false)
-    setInfoRubberCorrectRelease(false)
-    setInfoRubberReleaseTransformDur(null)
     infoWheelAcc.current = 0
     infoWheelAccY.current = 0
-    setInfoRubberX(0)
-    setInfoRubberStretchX(0)
-    setInfoRubberStretchY(0)
-    setInfoRubberY(0)
-    setInfoRubberLive(false)
-    setInfoRubberAxis(null)
     setIsInfoOpen(false)
     cancelRailMomentum()
     cancelRailGapDynamics()
     resetRailPointer()
-  }, [
-    cancelRailGapDynamics,
-    cancelRailMomentum,
-    clearInfoRubberWrongReleaseTimer,
-    clearInfoWheelIdleTimer,
-    resetRailPointer,
-  ])
+  }, [cancelRailGapDynamics, cancelRailMomentum, resetRailPointer])
 
   const toggleAbout = useCallback(() => {
     setIsAboutOpen((prev) => {
@@ -1041,19 +817,6 @@ export default function App() {
   const closeAbout = useCallback(() => {
     setIsAboutOpen(false)
   }, [])
-
-  const toggleTheme = useCallback(() => {
-    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))
-  }, [])
-
-  useLayoutEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, theme)
-    } catch {
-      /* ignore */
-    }
-  }, [theme])
 
   useEffect(() => {
     const tick = () => setWarsawTimeLabel(formatWarsawTimeLabel())
@@ -1094,7 +857,7 @@ export default function App() {
       cancelAnimationFrame(rafOuter)
       cancelAnimationFrame(rafInner)
     }
-  }, [isInfoOpen, project.id, project.description])
+  }, [isInfoOpen, project.id, project.description, project.category])
 
   useEffect(() => {
     if (!isAboutOpen) return
@@ -1134,17 +897,6 @@ export default function App() {
   useEffect(() => {
     isInfoOpenRef.current = isInfoOpen
   }, [isInfoOpen])
-
-  /* Block native touch scrolling while horizontal rubber is active (panel copy, overscroll). */
-  useEffect(() => {
-    const el = shellRef.current
-    if (!el || !isInfoOpen || !infoRubberLive || (infoRubberAxis !== 'x' && infoRubberAxis !== 'y')) return
-    const prevent = (e: TouchEvent) => {
-      e.preventDefault()
-    }
-    el.addEventListener('touchmove', prevent, { passive: false })
-    return () => el.removeEventListener('touchmove', prevent)
-  }, [isInfoOpen, infoRubberAxis, infoRubberLive])
 
   /** Animate stage squircle radius with layout (clip-path can’t transition in CSS) */
   useEffect(() => {
@@ -1397,123 +1149,36 @@ export default function App() {
           const rail = railRef.current
           if (!rail) return
           feedRailGapWheelImpulse(Math.hypot(ax, ay))
-          // Keep native inertial scrolling for trackpads; only convert Shift+wheel.
           if (e.shiftKey && ay > ax) {
             e.preventDefault()
             rail.scrollLeft += py
           }
-          clearInfoWheelIdleTimer()
           infoWheelAcc.current = 0
           infoWheelAccY.current = 0
-          setInfoRubberX(0)
-          setInfoRubberStretchX(0)
-          setInfoRubberStretchY(0)
-          setInfoRubberY(0)
-          setInfoRubberLive(false)
-          setInfoRubberAxis(null)
           return
         }
 
-        // Ignore slight diagonal noise over the rail so it does not jitter-hide.
         if (ay < ax * VERTICAL_INTENT_RATIO) return
       }
+
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      const wheelCommitPx = reducedMotion ? INFO_WHEEL_STEP : INFO_COMMIT_WHEEL_ACC
 
       const horizontalIntent = ax > ay
       if (!isOnRail && horizontalIntent) {
         e.preventDefault()
         infoWheelAccY.current = 0
-        setInfoRubberY(0)
-        setInfoRubberStretchY(0)
-        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-          infoWheelAcc.current += px
-          if (Math.abs(infoWheelAcc.current) < INFO_WHEEL_STEP) return
-          const towardOpen = infoWheelAcc.current < 0
-          infoWheelAcc.current = 0
-          if (towardOpen && !isInfoOpen) openInfo()
-          else if (!towardOpen && isInfoOpen) closeInfo()
-          return
-        }
-
         infoWheelAcc.current += px
         const acc = infoWheelAcc.current
-        const mag = Math.abs(acc)
         const open = isInfoOpenRef.current
-        const correctTowardOpen = !open && acc < 0
-        const correctTowardClose = open && acc > 0
-        const wrongWhenClosed = !open && acc > 0
-        const wrongWhenOpen = open && acc < 0
-
-        const snapHorizontalRubber = () => {
-          clearInfoWheelIdleTimer()
+        if ((!open && acc > 0) || (open && acc < 0)) {
           infoWheelAcc.current = 0
-          infoWheelAccY.current = 0
-          setInfoRubberLive(false)
-          setInfoRubberX(0)
-          setInfoRubberStretchX(0)
-          setInfoRubberStretchY(0)
-          setInfoRubberY(0)
-          setInfoRubberAxis(null)
-        }
-
-        if (wrongWhenClosed || wrongWhenOpen) {
-          if (mag >= INFO_COMMIT_WHEEL_ACC) {
-            releaseRubberBandSmooth({ wrongWay: true })
-            return
-          }
-          const tWrong = rubberWheelStrain01(mag)
-          if (wrongWhenClosed) {
-            setInfoRubberX(-tWrong * INFO_PREVIEW_WRONG_MAX_PX)
-            setInfoRubberStretchX(0)
-            setInfoRubberStretchY(0)
-          } else {
-            setInfoRubberX(0)
-            setInfoRubberStretchX(-tWrong * INFO_PREVIEW_WRONG_MAX_STRETCH_X)
-            setInfoRubberStretchY(0)
-          }
-          setInfoRubberLive(true)
-          setInfoRubberAxis('x')
-          clearInfoWheelIdleTimer()
-          infoWheelIdleTimerRef.current = window.setTimeout(() => {
-            infoWheelIdleTimerRef.current = null
-            releaseRubberBandSmooth({ wrongWay: true })
-          }, INFO_WHEEL_IDLE_MS)
           return
         }
-
-        if (!correctTowardOpen && !correctTowardClose) {
-          infoWheelAcc.current = 0
-          setInfoRubberX(0)
-          setInfoRubberStretchX(0)
-          setInfoRubberStretchY(0)
-          clearInfoWheelIdleTimer()
-          return
-        }
-
-        if (mag >= INFO_COMMIT_WHEEL_ACC) {
-          snapHorizontalRubber()
-          if (correctTowardOpen) openInfo()
-          else if (correctTowardClose) closeInfo()
-          return
-        }
-
-        const tRubber = rubberWheelStrain01(mag)
-        if (correctTowardOpen) {
-          setInfoRubberX(tRubber * INFO_PREVIEW_MAX_PX)
-          setInfoRubberStretchX(0)
-          setInfoRubberStretchY(0)
-        } else {
-          setInfoRubberX(0)
-          setInfoRubberStretchX(tRubber * INFO_PREVIEW_MAX_STRETCH_X)
-          setInfoRubberStretchY(0)
-        }
-        setInfoRubberLive(true)
-        setInfoRubberAxis('x')
-
-        clearInfoWheelIdleTimer()
-        infoWheelIdleTimerRef.current = window.setTimeout(() => {
-          infoWheelIdleTimerRef.current = null
-          releaseRubberBandSmooth({ wrongWay: false })
-        }, INFO_WHEEL_IDLE_MS)
+        if (Math.abs(acc) < wheelCommitPx) return
+        infoWheelAcc.current = 0
+        if (!open && acc < 0) openInfo()
+        else if (open && acc > 0) closeInfo()
         return
       }
 
@@ -1532,111 +1197,21 @@ export default function App() {
 
       e.preventDefault()
       infoWheelAcc.current = 0
-      setInfoRubberX(0)
-      setInfoRubberStretchX(0)
-      setInfoRubberStretchY(0)
-
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        infoWheelAccY.current += py
-        if (Math.abs(infoWheelAccY.current) < INFO_WHEEL_STEP) return
-        const acc = infoWheelAccY.current
-        infoWheelAccY.current = 0
-        /* Scroll down (positive py) opens; scroll up closes */
-        if (acc > 0 && !isInfoOpen) openInfo()
-        else if (acc < 0 && isInfoOpen) closeInfo()
-        return
-      }
-
       infoWheelAccY.current += py
       const accY = infoWheelAccY.current
-      const magY = Math.abs(accY)
       const open = isInfoOpenRef.current
-      const correctOpenInfo = !open && accY > 0
-      const correctCloseInfo = open && accY < 0
-      const wrongWhenClosedY = !open && accY < 0
-      const wrongWhenOpenY = open && accY > 0
-
-      const snapVerticalRubber = () => {
-        clearInfoWheelIdleTimer()
+      if ((!open && accY < 0) || (open && accY > 0)) {
         infoWheelAccY.current = 0
-        infoWheelAcc.current = 0
-        setInfoRubberLive(false)
-        setInfoRubberY(0)
-        setInfoRubberStretchY(0)
-        setInfoRubberX(0)
-        setInfoRubberStretchX(0)
-        setInfoRubberAxis(null)
-      }
-
-      if (wrongWhenClosedY || wrongWhenOpenY) {
-        if (magY >= INFO_COMMIT_WHEEL_ACC) {
-          releaseRubberBandSmooth({ wrongWay: true })
-          return
-        }
-        const tWrong = rubberWheelStrain01(magY)
-        if (wrongWhenClosedY) {
-          setInfoRubberY(tWrong * INFO_PREVIEW_WRONG_MAX_PY)
-          setInfoRubberStretchY(0)
-        } else {
-          setInfoRubberY(0)
-          setInfoRubberStretchY(-tWrong * INFO_PREVIEW_WRONG_MAX_STRETCH_Y)
-        }
-        setInfoRubberLive(true)
-        setInfoRubberAxis('y')
-        clearInfoWheelIdleTimer()
-        infoWheelIdleTimerRef.current = window.setTimeout(() => {
-          infoWheelIdleTimerRef.current = null
-          releaseRubberBandSmooth({ wrongWay: true })
-        }, INFO_WHEEL_IDLE_MS)
         return
       }
-
-      if (!correctOpenInfo && !correctCloseInfo) {
-        infoWheelAccY.current = 0
-        setInfoRubberY(0)
-        setInfoRubberStretchY(0)
-        clearInfoWheelIdleTimer()
-        return
-      }
-
-      if (magY >= INFO_COMMIT_WHEEL_ACC) {
-        snapVerticalRubber()
-        if (correctOpenInfo) openInfo()
-        else if (correctCloseInfo) closeInfo()
-        return
-      }
-
-      const tVert = rubberWheelStrain01(magY)
-      if (correctOpenInfo) {
-        setInfoRubberY(-tVert * INFO_PREVIEW_MAX_PY)
-        setInfoRubberStretchY(0)
-      } else {
-        setInfoRubberY(0)
-        setInfoRubberStretchY(tVert * INFO_PREVIEW_MAX_STRETCH_Y)
-      }
-      setInfoRubberLive(true)
-      setInfoRubberAxis('y')
-
-      clearInfoWheelIdleTimer()
-      infoWheelIdleTimerRef.current = window.setTimeout(() => {
-        infoWheelIdleTimerRef.current = null
-        releaseRubberBandSmooth({ wrongWay: false })
-      }, INFO_WHEEL_IDLE_MS)
+      if (Math.abs(accY) < wheelCommitPx) return
+      infoWheelAccY.current = 0
+      if (!open && accY > 0) openInfo()
+      else if (open && accY < 0) closeInfo()
     }
     window.addEventListener('wheel', onWheel, { passive: false })
-    return () => {
-      window.removeEventListener('wheel', onWheel)
-      clearInfoWheelIdleTimer()
-    }
-  }, [
-    clearInfoWheelIdleTimer,
-    closeInfo,
-    feedRailGapWheelImpulse,
-    isAboutOpen,
-    isInfoOpen,
-    openInfo,
-    releaseRubberBandSmooth,
-  ])
+    return () => window.removeEventListener('wheel', onWheel)
+  }, [closeInfo, feedRailGapWheelImpulse, isAboutOpen, isInfoOpen, openInfo])
 
   useEffect(() => {
     const finePointerQuery = window.matchMedia('(hover: hover) and (pointer: fine)')
@@ -1886,36 +1461,6 @@ export default function App() {
       ) {
         return
       }
-
-      if (absY >= absX && absY > 12) {
-        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-        setInfoRubberX(0)
-        setInfoRubberStretchX(0)
-        setInfoRubberLive(true)
-        setInfoRubberAxis('y')
-        /* Swipe down opens (same as trackpad scroll down); swipe up closes */
-        if (!isInfoOpen && deltaY > 0) {
-          const t = Math.min(1, deltaY / INFO_SWIPE_COMMIT_PY)
-          setInfoRubberY(-t * INFO_PREVIEW_MAX_PY)
-          setInfoRubberStretchY(0)
-        } else if (isInfoOpen && deltaY < 0) {
-          const t = Math.min(1, -deltaY / INFO_SWIPE_COMMIT_PY)
-          setInfoRubberY(0)
-          setInfoRubberStretchY(t * INFO_PREVIEW_MAX_STRETCH_Y)
-        } else if (!isInfoOpen && deltaY < 0) {
-          const t = Math.min(1, -deltaY / INFO_SWIPE_COMMIT_PY)
-          setInfoRubberY(t * INFO_PREVIEW_WRONG_MAX_PY)
-          setInfoRubberStretchY(0)
-        } else if (isInfoOpen && deltaY > 0) {
-          const t = Math.min(1, deltaY / INFO_SWIPE_COMMIT_PY)
-          setInfoRubberY(0)
-          setInfoRubberStretchY(-t * INFO_PREVIEW_WRONG_MAX_STRETCH_Y)
-        } else {
-          setInfoRubberY(0)
-          setInfoRubberStretchY(0)
-        }
-        return
-      }
     },
     [isAboutOpen, isInfoOpen],
   )
@@ -1949,47 +1494,20 @@ export default function App() {
             isInfoOpen,
           )
         ) {
-          releaseRubberBandSmooth()
           return
         }
-        if (reducedMotion) {
-          setInfoRubberLive(false)
-          setInfoRubberY(0)
-          setInfoRubberStretchY(0)
-          setInfoRubberX(0)
-          setInfoRubberStretchX(0)
-          setInfoRubberAxis(null)
-          if (absY >= SWIPE_STEP) {
-            if (!isInfoOpen && deltaY > SWIPE_STEP) openInfo()
-            else if (isInfoOpen && deltaY < -SWIPE_STEP) closeInfo()
-          }
-          return
-        }
-        if (absY < INFO_SWIPE_COMMIT_PY) {
-          releaseRubberBandSmooth()
-        } else if (!isInfoOpen && deltaY > INFO_SWIPE_COMMIT_PY) {
-          openInfo()
-        } else if (isInfoOpen && deltaY < -INFO_SWIPE_COMMIT_PY) {
-          closeInfo()
-        } else {
-          releaseRubberBandSmooth()
-        }
+        const commitPx = reducedMotion ? SWIPE_STEP : INFO_SWIPE_COMMIT_PY
+        if (absY < commitPx) return
+        if (!isInfoOpen && deltaY > commitPx) openInfo()
+        else if (isInfoOpen && deltaY < -commitPx) closeInfo()
         return
       }
 
-      if (absX > absY && absX >= 12) {
-        releaseRubberBandSmooth()
-        return
-      }
+      if (absX > absY && absX >= 12) return
 
-      if (Math.max(absX, absY) < SWIPE_STEP) {
-        releaseRubberBandSmooth()
-        return
-      }
-
-      releaseRubberBandSmooth()
+      if (Math.max(absX, absY) < SWIPE_STEP) return
     },
-    [closeInfo, isAboutOpen, isInfoOpen, openInfo, releaseRubberBandSmooth],
+    [closeInfo, isAboutOpen, isInfoOpen, openInfo],
   )
 
   const handleRailPointerDown = useCallback(
@@ -2097,28 +1615,7 @@ export default function App() {
 
   return (
     <div
-      ref={shellRef}
       className={`shell ${isInfoOpen ? 'shell--info' : ''} ${isAboutOpen ? 'shell--about' : ''}`}
-      style={
-        {
-          '--info-rubber-x': `${infoRubberX}px`,
-          '--info-rubber-y': `${infoRubberY}px`,
-          '--info-rubber-stretch-x': String(infoRubberStretchX),
-          '--info-rubber-stretch-y': String(infoRubberStretchY),
-          '--info-rubber-stretch-rail-y': `${
-            infoRubberStretchX * INFO_STRETCH_RAIL_PULL_PX +
-            infoRubberStretchY * INFO_STRETCH_RAIL_PULL_FROM_STRETCH_Y_PX +
-            infoRubberX * INFO_WRONG_X_RAIL_PULL_RATIO
-          }px`,
-          ...(infoRubberReleaseTransformDur
-            ? { '--info-rubber-transform-dur': infoRubberReleaseTransformDur }
-            : {}),
-        } as React.CSSProperties
-      }
-      data-info-rubber-live={infoRubberLive ? 'true' : undefined}
-      data-info-rubber-wrong-release={infoRubberWrongRelease ? 'true' : undefined}
-      data-info-rubber-correct-release={infoRubberCorrectRelease ? 'true' : undefined}
-      data-info-rubber-axis={infoRubberAxis ?? undefined}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -2133,7 +1630,15 @@ export default function App() {
           aria-hidden={!isInfoOpen}
         >
           <div className="projectInfoInner">
-            <TypographyRevealLines as="h2" variant="title" text={project.label} className="projectInfoTitle" />
+            <div className="projectInfoHead">
+              <TypographyRevealLines as="h2" variant="title" text={project.label} className="projectInfoTitle" />
+              <TypographyRevealLines
+                as="p"
+                variant="category"
+                text={project.category ?? defaultProjectCategory}
+                className="projectInfoCategory"
+              />
+            </div>
             <ProjectInfoBody
               key={`${project.id}-desc-0`}
               className="projectInfoBody"
@@ -2218,7 +1723,7 @@ export default function App() {
 
       <header className="topBar">
         <div className="topBarLead">
-          <p className="identity">Franek Fuks - Designer</p>
+          <p className="identity">Franek Fuks</p>
           <button
             type="button"
             className={`identityDots ${isAboutOpen ? 'identityDots--active identityDots--stolen' : ''}`}
@@ -2258,57 +1763,6 @@ export default function App() {
         {isAboutOpen ? <p className="identityMeta identityMeta--center">{warsawTimeLabel}</p> : null}
 
         <div className="topRight">
-          <button
-            type="button"
-            className="themeToggle"
-            onClick={toggleTheme}
-            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-            title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
-          >
-            {theme === 'dark' ? (
-              <svg
-                className="themeToggleIcon"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-                aria-hidden
-              >
-                <path
-                  d="M12 18C15.3137 18 18 15.3137 18 12C18 8.68629 15.3137 6 12 6C8.68629 6 6 8.68629 6 12C6 15.3137 8.68629 18 12 18Z"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <path
-                  d="M12 2V3.5M12 20.5V22M4.22 4.22L5.28 5.28M18.72 18.72L19.78 19.78M2 12H3.5M20.5 12H22M4.22 19.78L5.28 18.72M18.72 5.28L19.78 4.22"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-            ) : (
-              <svg
-                className="themeToggleIcon"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-                aria-hidden
-              >
-                <path
-                  d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            )}
-          </button>
           <span className="projectTitle" aria-hidden={isInfoOpen || isAboutOpen}>
             {project.label}
           </span>
@@ -2352,7 +1806,6 @@ export default function App() {
         data-dragging={isRailDragging}
       >
         <div className="railWrapSlide" data-hidden={!isInfoOpen}>
-          <div className="railWrapRubber">
             <p className={`railHint ${!isInfoOpen ? 'railHint--visible' : ''}`} aria-hidden={isInfoOpen}>
               <span className="railHintChevron" aria-hidden>
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
@@ -2444,7 +1897,6 @@ export default function App() {
                 </div>
               </div>
             </div>
-          </div>
         </div>
       </footer>
 

@@ -2,12 +2,16 @@ import { layoutWithLines, prepareWithSegments } from '@chenglou/pretext'
 import { type ReactNode, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 /** Matches `.projectInfoTitle` / `--font-size-h3` + `--line-height-heading` */
-const FONT_TITLE = '500 20px Inter'
+const FONT_TITLE = '400 20px Inter'
 const LINE_HEIGHT_TITLE_PX = 25
 
+/** Matches `.projectInfoCategory` — muted layer; regular weight */
+const FONT_CATEGORY = '400 14px Inter'
+const LINE_HEIGHT_CATEGORY_PX = 21
+
 /** Matches `.projectInfoBody` / `.aboutOverlayBody` — `--font-size-base` + `--line-height-body-px` */
-const FONT_BODY = '400 16px Inter'
-const LINE_HEIGHT_BODY_PX = 24
+const FONT_BODY = '400 14px Inter'
+const LINE_HEIGHT_BODY_PX = 21
 
 function renderLineWithOptionalLink(
   line: string,
@@ -28,7 +32,7 @@ function renderLineWithOptionalLink(
 
 type Props = {
   as?: 'h2' | 'p'
-  variant: 'title' | 'body'
+  variant: 'title' | 'body' | 'category'
   className?: string
   text: string
   /** When a line contains this substring, wrap it in <a href={href}> */
@@ -39,8 +43,13 @@ export function TypographyRevealLines({ as: Tag = 'p', variant, className, text,
   const wrapRef = useRef<HTMLHeadingElement | HTMLParagraphElement | null>(null)
   const [width, setWidth] = useState(0)
 
-  const font = variant === 'title' ? FONT_TITLE : FONT_BODY
-  const lineHeightPx = variant === 'title' ? LINE_HEIGHT_TITLE_PX : LINE_HEIGHT_BODY_PX
+  const font = variant === 'title' ? FONT_TITLE : variant === 'category' ? FONT_CATEGORY : FONT_BODY
+  const lineHeightPx =
+    variant === 'title'
+      ? LINE_HEIGHT_TITLE_PX
+      : variant === 'category'
+        ? LINE_HEIGHT_CATEGORY_PX
+        : LINE_HEIGHT_BODY_PX
 
   const prepared = useMemo(
     () => prepareWithSegments(text, font, { whiteSpace: 'pre-wrap' }),

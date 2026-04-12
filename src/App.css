@@ -20,23 +20,6 @@
   background: var(--page-bg);
   color: var(--text);
   isolation: isolate;
-  /* One duration for transform — avoids swapping transition rules when live toggles (reduces end jitter) */
-  --info-rubber-transform-dur: var(--duration-info-rubber-release, 0.32s);
-}
-
-.shell[data-info-rubber-live='true'] {
-  --info-rubber-transform-dur: 0ms;
-}
-
-/* Wrong-way squeeze: longer duration; softer decelerate */
-.shell[data-info-rubber-wrong-release='true'] {
-  --info-rubber-transform-dur: var(--duration-info-rubber-squeeze-wrong, 0.48s);
-  --ease-info-rubber-release: var(--ease-info-rubber-squeeze-wrong);
-}
-
-/* Correct-direction preview: snappy snap to neutral — ease-out only (duration from inline strain) */
-.shell[data-info-rubber-correct-release='true'] {
-  --ease-info-rubber-release: var(--ease-info-rubber-correct-snap);
 }
 
 /* Full-viewport media (behind header + rail) */
@@ -50,12 +33,8 @@
   gap: 0;
   padding: 0;
   backface-visibility: hidden;
-  transform: translate3d(var(--info-rubber-x, 0px), var(--info-rubber-y, 0px), 0)
-    scaleX(calc(1 + var(--info-rubber-stretch-x, 0)));
-  transition: transform var(--info-rubber-transform-dur) var(--ease-info-rubber-release);
 }
 
-/* Row + padding live on inner so vertical close rubber can scaleY from top (cards top pinned) */
 .fullBleedInner {
   flex: 1;
   min-height: 0;
@@ -66,12 +45,9 @@
   padding: 0;
   box-sizing: border-box;
   backface-visibility: hidden;
-  transform: scaleY(calc(1 + var(--info-rubber-stretch-y, 0)));
-  transform-origin: top center;
   transition:
     padding var(--duration-stage-info, 0.24s) var(--ease-view-inset),
-    gap var(--duration-stage-info, 0.24s) var(--ease-view-inset),
-    transform var(--info-rubber-transform-dur) var(--ease-info-rubber-release);
+    gap var(--duration-stage-info, 0.24s) var(--ease-view-inset);
 }
 
 .fullBleed::after {
@@ -166,13 +142,38 @@
   transition-delay: var(--info-content-reveal-delay);
 }
 
+.projectInfoHead {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.2rem;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.projectInfoCategory {
+  margin: 0;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  font-weight: 400;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-body-px);
+  letter-spacing: -0.011em;
+  color: var(--text-muted);
+}
+
 .projectInfoTitle {
   margin: 0;
-  font-weight: 500;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  font-weight: 400;
   font-size: var(--font-size-h3);
   line-height: var(--line-height-heading);
   letter-spacing: -0.02em;
-  color: var(--text);
+  color: var(--text-strong);
 }
 
 /* Line splits from Pretext — balance would fight measured lines */
@@ -184,12 +185,16 @@
   line-break: auto;
 }
 
+.projectInfoHead + .projectInfoBody {
+  margin-top: 1.45rem;
+}
+
 .projectInfoBody {
   margin: 0.85rem 0 0;
   font-size: var(--font-size-base);
   line-height: var(--line-height-body-px);
   font-weight: 400;
-  color: var(--text-muted);
+  color: var(--text-strong);
   max-width: 37.5rem;
   overflow-wrap: normal;
   word-break: normal;
@@ -207,20 +212,9 @@
   --info-bottom-pad: calc(var(--rail-stack-h) - var(--space-6));
 }
 
-.shell--info .fullBleed {
-  /* Horizontal close rubber: pin right edge, stretch row (scaleX) instead of sliding */
-  transform-origin: right center;
-}
-
 .shell--info .fullBleedInner {
   padding: var(--info-top-pad) var(--info-side-pad) var(--info-bottom-pad);
   gap: var(--info-gap);
-}
-
-/* Slow drag on copy: don’t scroll the panel during stretch rubber */
-.shell--info[data-info-rubber-axis='x'][data-info-rubber-live='true'] .projectInfoPanel,
-.shell--info[data-info-rubber-axis='y'][data-info-rubber-live='true'] .projectInfoPanel {
-  touch-action: none;
 }
 
 .shell--info .railTrack {
@@ -250,8 +244,8 @@
 
 @keyframes stageFade {
   from {
-    opacity: 0.9;
-    transform: scale(calc(var(--squircle-media-overscan) * 1.002));
+    opacity: 0.92;
+    transform: scale(var(--squircle-media-overscan));
   }
   to {
     opacity: 1;
@@ -337,12 +331,14 @@
 }
 
 .identity {
-  color: var(--text-strong);
   margin: 0;
   white-space: nowrap;
-  font-size: var(--font-size-base);
-  line-height: var(--line-height-body-px);
-  font-weight: 400;
+  font-family: var(--chrome-ambient-font-family);
+  font-size: var(--chrome-ambient-font-size);
+  line-height: var(--chrome-ambient-line-height-px);
+  font-weight: var(--chrome-ambient-font-weight);
+  letter-spacing: var(--chrome-ambient-letter-spacing);
+  color: var(--chrome-ambient-color);
 }
 
 .identityMeta {
@@ -660,52 +656,22 @@
   justify-self: end;
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
   min-width: 0;
-}
-
-.themeToggle {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  margin: 0;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--icon-stroke);
-  appearance: none;
-  font: inherit;
-  cursor: pointer;
-  transition: opacity 180ms ease;
-}
-
-.themeToggle:hover {
-  opacity: 0.45;
-}
-
-.themeToggle:focus-visible {
-  outline: 2px solid var(--text-strong);
-  outline-offset: 2px;
-}
-
-.themeToggleIcon {
-  display: block;
 }
 
 .projectTitle {
   display: inline-block;
-  color: var(--text-muted);
   max-width: 16rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: var(--font-size-small);
-  line-height: var(--line-height-body-px);
-  font-weight: 400;
+  font-family: var(--chrome-ambient-font-family);
+  font-size: var(--chrome-ambient-font-size);
+  line-height: var(--chrome-ambient-line-height-px);
+  font-weight: var(--chrome-ambient-font-weight);
+  letter-spacing: var(--chrome-ambient-letter-spacing);
+  color: var(--chrome-ambient-color);
   transform: translate3d(0, 0, 0);
   transition:
     opacity 0.18s var(--ease-view-inset),
@@ -745,7 +711,7 @@
   pointer-events: none;
 }
 
-/* Whole strip off-screen when info closed; dedicated timing (not rubber --info-rubber-transform-dur) */
+/* Whole strip off-screen when info closed */
 .railWrapSlide {
   display: flex;
   flex-direction: column;
@@ -770,21 +736,6 @@
   pointer-events: none;
 }
 
-/* Rubber gesture: matches .fullBleed / shell vars */
-.railWrapRubber {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--rail-hint-gap);
-  width: 100%;
-  transform: translate3d(
-    0,
-    calc(var(--info-rubber-y, 0px) + var(--info-rubber-stretch-rail-y, 0px)),
-    0
-  );
-  transition: transform var(--info-rubber-transform-dur) var(--ease-info-rubber-release);
-}
-
 /* Info view: remove hint from layout so --info-bottom-pad gaps stage → slider cards only (not hint) */
 .railWrap[data-info-open='true'] .railHint {
   display: none;
@@ -798,7 +749,8 @@
 @keyframes railCardEnter {
   from {
     opacity: 0.94;
-    transform: translateY(0.5rem) scale(calc(var(--card-rest-scale) * 0.993));
+    /* Matches [data-hidden='true'] .card — slide up only, no extra scale “breathing” */
+    transform: translateY(0.5rem) scale(calc(var(--card-rest-scale) * 0.95));
   }
   to {
     opacity: 1;
@@ -1094,10 +1046,12 @@
   padding: var(--rail-hint-pad);
   border: none;
   background: none;
-  color: var(--text-muted);
-  font-size: var(--font-size-small);
-  line-height: var(--line-height);
-  font-weight: 400;
+  font-family: var(--chrome-ambient-font-family);
+  font-size: var(--chrome-ambient-font-size);
+  line-height: var(--chrome-ambient-line-height-px);
+  font-weight: var(--chrome-ambient-font-weight);
+  letter-spacing: var(--chrome-ambient-letter-spacing);
+  color: var(--chrome-ambient-color);
   pointer-events: none;
   transition:
     opacity calc(var(--duration-view-resize, 0.34s) * 0.52) ease,
@@ -1106,7 +1060,7 @@
 
 .railHintChevron {
   display: flex;
-  color: var(--text-muted);
+  color: inherit;
 }
 
 .railHintChevron svg {
@@ -1174,8 +1128,8 @@
 
 .customCursorIcon svg {
   display: block;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 
 .customCursor[data-direction='right'] .customCursorIcon {
@@ -1242,7 +1196,6 @@
   .hitOverlay,
   .railWrap,
   .railWrapSlide,
-  .railWrapRubber,
   .railHint,
   .customCursor {
     animation: none;
