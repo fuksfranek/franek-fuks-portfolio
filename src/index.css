@@ -26,23 +26,23 @@
   --squircle-media-overscan: 1.035;
   /* Inset ring on image frames (::after overlay — see App.css) */
   --media-frame-border: rgba(255, 255, 255, 0.1);
-  /* Named stacks only (no system-ui on macOS — measurement mismatch with Pretext) */
+  /* Named stacks only (no system-ui on macOS — measurement mismatch with canvas text APIs) */
   --font-ui: Inter, Helvetica, Arial, sans-serif;
-  /* Base typography scale — keep CSS in sync with Pretext font strings (e.g. "14px Inter") */
+  /* Base typography scale */
   --font-size-base: 14px;
   --font-size-small: 14px;
   --font-size-large: 18px;
   --font-size-h3: 20px;
   --font-size-h2: 24px;
   --font-size-h1: 32px;
-  /* Body: 1.5–1.6; use px line-height when pairing with Pretext layout() */
+  /* Body: 1.5–1.6; px line-height pairs with fixed UI type */
   --line-height: 1.5;
   --line-height-body-px: 21px;
   /* Headings: 1.2–1.3 */
   --line-height-heading: 1.25;
   /*
    * Full-viewport chrome: name (top left), project title (top right), rail hint (“swipe down…”).
-   * Keep in sync with Pretext: "14px Inter" + 21px line-height.
+   * Keep in sync with UI copy: "14px Inter" + 21px line-height.
    */
   --chrome-ambient-font-family: var(--font-ui);
   --chrome-ambient-font-size: var(--font-size-base);
@@ -52,7 +52,7 @@
   --chrome-ambient-color: var(--text-strong);
   /*
    * Primary UI motion: ease-out-cubic (animations.dev) — shorter tail than quart, less “floaty”.
-   * Keep in [0,1] (no overshoot). Sync App.tsx easeViewInsetY + WAAPI easing strings.
+   * Keep in [0,1] (no overshoot). Sync src/lib/easeViewInset.ts + WAAPI easing strings.
    */
   --ease-out-cubic: cubic-bezier(0.215, 0.61, 0.355, 1);
   --ease-view-inset: var(--ease-out-cubic);
@@ -88,6 +88,8 @@
   /* Gap under thumb + two lines of rail label at --font-size-small × --line-height */
   --rail-card-label-gap: 12px;
   --rail-card-label-h: calc(var(--font-size-small) * var(--line-height) * 2);
+  /* Horizontal gap between rail project cards (.railTrack gap); info layout uses the same for stage ↔ rail */
+  --rail-inter-card-gap: 14px;
   /* Full height from viewport bottom: rail track (pad + thumb + gap + title + pad) + safe area */
   /* Top term matches .railTrack padding-top (even inset with horizontal padding) */
   --rail-stack-h: calc(

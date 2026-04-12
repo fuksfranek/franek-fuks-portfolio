@@ -21,8 +21,9 @@ export const defaultProjectCategory = 'Web Design and No-Code Development'
 
 /** Used when a project omits `description` (two blocks separated by a blank line → two paragraphs in UI) */
 export const defaultProjectDescription =
-  'Visual direction, pacing, and narrative for this project.\n\nThe stage keeps auto-playing through assets while you inspect context on the side.'
+  'This slot is ready for a longer project note: how the work was framed, what constraints shaped the outcome, and what you want a visitor to take away after scrolling the gallery. Keep sentences at a natural length so the panel reads like a short editorial caption rather than a list of features.\n\nThe main stage continues to advance through stills and clips on its own. Open the rail when you want to jump projects; the side panel is for context, credits, links, or process detail that does not need to sit on every frame.'
 
+/** When `gallery` is omitted or empty, the stage shows the cover only; when listed, the stage cycles those assets and does not include the cover. */
 function gallery(project: Omit<Project, 'gallery'> & { gallery?: Media[] }): Project {
   const { gallery: g, ...rest } = project
   return {
@@ -109,6 +110,15 @@ export const projects: Project[] = [
       src: '/images/projects/shadow/cover/shadow.png?v=2',
       alt: 'Shadow cover',
     },
+    gallery: [
+      { kind: 'image', src: '/images/projects/shadow/gallery/shadow-1.jpg', alt: 'Shadow frame 01' },
+      { kind: 'image', src: '/images/projects/shadow/gallery/shadow-2.jpg', alt: 'Shadow frame 02' },
+      { kind: 'image', src: '/images/projects/shadow/gallery/shadow-3.jpg', alt: 'Shadow frame 03' },
+      { kind: 'image', src: '/images/projects/shadow/gallery/shadow-4.jpg', alt: 'Shadow frame 04' },
+      { kind: 'image', src: '/images/projects/shadow/gallery/shadow-5.jpg', alt: 'Shadow frame 05' },
+      { kind: 'image', src: '/images/projects/shadow/gallery/shadow-6.jpg', alt: 'Shadow frame 06' },
+      { kind: 'image', src: '/images/projects/shadow/gallery/shadow-7.jpg', alt: 'Shadow frame 07' },
+    ],
   }),
   gallery({
     id: 'dawid-podsiadlo-cover',

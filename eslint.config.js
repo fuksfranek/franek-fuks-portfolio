@@ -6,7 +6,8 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  /* Match .gitignore — local checkpoint copies are not part of the app */
+  globalIgnores(['dist', '_checkpoint_*/**']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

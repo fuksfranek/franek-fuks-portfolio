@@ -1,5 +1,8 @@
-import { TypographyRevealLines } from './TypographyRevealLines'
-
+/** Native wrapping; GSAP entrance uses `data-info-reveal`. */
 export function ProjectInfoBody({ text, className }: { text: string; className?: string }) {
-  return <TypographyRevealLines as="p" variant="body" text={text} className={className} />
+  return (
+    <p className={className} data-info-reveal="block">
+      {text}
+    </p>
+  )
 }

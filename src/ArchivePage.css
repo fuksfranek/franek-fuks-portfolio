@@ -1,0 +1,314 @@
+/* ─── Archive route: masonry + chrome (fly layer is fixed, appended to body) ─── */
+
+.archivePage {
+  --archive-surface-bg: #0a0a0a;
+  --archive-chrome-fg: rgba(255, 255, 255, 0.9);
+  --archive-chrome-fg-muted: rgba(255, 255, 255, 0.48);
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--archive-surface-bg);
+  color: rgba(255, 255, 255, 0.92);
+  font-family: var(--font-ui);
+  overflow: visible;
+}
+
+.archiveBack {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: var(--chrome-ambient-font-family);
+  font-size: var(--chrome-ambient-font-size);
+  line-height: var(--chrome-ambient-line-height-px);
+  font-weight: var(--chrome-ambient-font-weight);
+  letter-spacing: var(--chrome-ambient-letter-spacing);
+  color: var(--chrome-ambient-color);
+  cursor: pointer;
+  text-align: left;
+  transition: opacity 0.18s var(--ease-view-inset);
+}
+
+.archivePage .archiveBack {
+  color: var(--archive-chrome-fg);
+}
+
+.archiveBack:hover {
+  opacity: 0.45;
+}
+
+.archiveBack:focus-visible {
+  outline: 2px solid var(--text-strong);
+  outline-offset: 4px;
+}
+
+.archivePage .archiveBack:focus-visible {
+  outline-color: rgba(255, 255, 255, 0.85);
+}
+
+/* Fixed bottom bar — pointer-events none so grid scroll isn’t eaten; button re-enables hits */
+.archiveBackDock {
+  position: fixed;
+  z-index: 90;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  padding: 0 var(--space-6) calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
+  padding-top: var(--space-5);
+  pointer-events: none;
+}
+
+.archiveBackDock .archiveBack {
+  pointer-events: auto;
+}
+
+.archiveBack--dock {
+  padding: 0.55rem 1.25rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.archiveScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  /* Full-bleed under status bar; bottom space for floating back control */
+  padding:
+    calc(env(safe-area-inset-top, 0px) + var(--space-5))
+    var(--space-5)
+    calc(env(safe-area-inset-bottom, 0px) + var(--space-6) + 3.25rem + var(--space-5));
+  box-sizing: border-box;
+}
+
+/* Pinterest-style flow: shortest-column packing via CSS columns */
+.archiveMasonry {
+  column-count: 2;
+  column-gap: var(--space-4);
+  max-width: 112rem;
+  margin: 0 auto;
+}
+
+@media (min-width: 900px) {
+  .archiveMasonry {
+    column-count: 4;
+  }
+}
+
+@media (min-width: 1400px) {
+  .archiveMasonry {
+    column-count: 6;
+  }
+}
+
+.archiveCell {
+  display: block;
+  width: 100%;
+  margin: 0 0 var(--space-4);
+  break-inside: avoid;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow:
+    0 2px 4px rgba(16, 22, 31, 0.06),
+    0 12px 24px rgba(16, 22, 31, 0.06);
+  transition: transform 0.2s var(--ease-view-inset), box-shadow 0.2s ease;
+}
+
+.archivePage .archiveCell {
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.45),
+    0 14px 32px rgba(0, 0, 0, 0.38);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .archiveCell:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 4px 8px rgba(16, 22, 31, 0.08),
+      0 18px 36px rgba(16, 22, 31, 0.08);
+  }
+
+  .archivePage .archiveCell:hover {
+    box-shadow:
+      0 6px 14px rgba(0, 0, 0, 0.5),
+      0 22px 44px rgba(0, 0, 0, 0.42);
+  }
+}
+
+.archiveCell:focus-visible {
+  outline: 2px solid var(--text-strong);
+  outline-offset: 3px;
+}
+
+.archivePage .archiveCell:focus-visible {
+  outline-color: rgba(255, 255, 255, 0.75);
+}
+
+.archiveCellInner {
+  display: block;
+  width: 100%;
+  border-radius: inherit;
+}
+
+/* No default opacity/filter transition: after FLIP handoff, stray recomputes were easing ~0.5s (cards looked like they faded). Transitions only when using the modifiers below. */
+.archivePageContent {
+  opacity: 1;
+  filter: none;
+  /* Fill .archivePage flex column so .archiveScroll gets a bounded height and can overflow-y: scroll */
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+
+.archivePageContent--enterFromTeaser {
+  opacity: 0;
+  filter: blur(10px);
+  transition:
+    opacity 0.52s var(--ease-view-inset),
+    filter 0.55s var(--ease-view-inset);
+}
+
+.archivePageContent--enterFromTeaser.archivePageContent--enterReady {
+  opacity: 1;
+  filter: none;
+}
+
+.archivePage--exitBlur .archivePageContent {
+  opacity: 0;
+  filter: blur(14px);
+  pointer-events: none;
+  transition:
+    opacity 0.28s var(--ease-view-inset),
+    filter 0.28s var(--ease-view-inset);
+}
+
+.archiveCell--flyPending {
+  visibility: hidden;
+}
+
+/* Lightbox (portaled to body — match dark archive chrome) */
+.archiveLightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.archiveLightboxInner {
+  position: relative;
+  width: min(92vw, 42rem);
+  max-height: min(78vh, 52rem);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow:
+    0 28px 56px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.archiveLightboxSwatch {
+  width: 100%;
+  display: block;
+}
+
+.archiveLightboxClose {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  width: 2.25rem;
+  height: 2.25rem;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text-strong);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  line-height: 1;
+  box-shadow: 0 2px 8px rgba(16, 22, 31, 0.1);
+}
+
+.archiveLightboxClose:focus-visible {
+  outline: 2px solid var(--text-strong);
+  outline-offset: 2px;
+}
+
+.archiveLightboxCaption {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-body-px);
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.55);
+  background: #0a0a0a;
+}
+
+/* View Transitions API: black surface during cross-fade (pairs with runWithViewTransition in PortfolioApp). */
+@supports (view-transition-name: none) {
+  .archivePage {
+    view-transition-name: archive-page;
+  }
+
+  ::view-transition-group(archive-page) {
+    background-color: #0a0a0a;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .archivePageContent,
+  .archivePage--exitBlur .archivePageContent {
+    transition: none;
+    filter: none;
+  }
+
+  .archivePageContent--enterFromTeaser {
+    opacity: 1;
+    filter: none;
+  }
+
+  .archiveCell {
+    transition: none;
+  }
+
+  .archiveCell:hover {
+    transform: none;
+  }
+
+  .archiveLightbox {
+    backdrop-filter: none;
+  }
+
+  .archiveBack--dock {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  @supports (view-transition-name: none) {
+    .archivePage {
+      view-transition-name: none;
+    }
+  }
+}

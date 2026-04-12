@@ -22,6 +22,34 @@
   isolation: isolate;
 }
 
+/* Navigate → archive: whole portfolio shell eases out (ease-out; blur capped for perf — disabled when reduced motion).
+   Duration: keep in sync with src/lib/archiveShellTiming.ts ARCHIVE_SHELL_EXIT_MS */
+.shell--archive-exit {
+  opacity: 0;
+  filter: blur(8px);
+  pointer-events: none;
+  transition:
+    opacity 0.22s var(--ease-view-inset),
+    filter 0.22s var(--ease-view-inset);
+}
+
+/* #archive overlay: shell stays mounted, hidden until closing “reveal” */
+.shell--under-archive {
+  opacity: 0;
+  filter: blur(8px);
+  pointer-events: none;
+}
+
+.shell--under-archive.shell--archive-revealing {
+  opacity: 1;
+  filter: blur(0);
+  pointer-events: auto;
+  /* Duration set from JS to match ArchiveOverlay exit FLIP clock (--archive-shell-reveal-ms) */
+  transition:
+    opacity var(--archive-shell-reveal-ms, 400ms) var(--ease-view-inset),
+    filter var(--archive-shell-reveal-ms, 400ms) var(--ease-view-inset);
+}
+
 /* Full-viewport media (behind header + rail) */
 .fullBleed {
   position: fixed;
@@ -156,30 +184,32 @@
   margin: 0;
   width: 100%;
   min-width: 0;
+  max-width: 37.5rem;
   box-sizing: border-box;
   font-weight: 400;
   font-size: var(--font-size-base);
   line-height: var(--line-height-body-px);
   letter-spacing: -0.011em;
   color: var(--text-muted);
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  line-break: auto;
 }
 
 .projectInfoTitle {
   margin: 0;
   width: 100%;
   min-width: 0;
+  max-width: 37.5rem;
   box-sizing: border-box;
   font-weight: 400;
-  font-size: var(--font-size-h3);
-  line-height: var(--line-height-heading);
-  letter-spacing: -0.02em;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-body-px);
+  letter-spacing: -0.011em;
   color: var(--text-strong);
-}
-
-/* Line splits from Pretext — balance would fight measured lines */
-.typographyRevealLine {
-  display: block;
-  margin: 0;
+  hyphens: none;
+  white-space: normal;
   overflow-wrap: break-word;
   word-break: normal;
   line-break: auto;
@@ -196,11 +226,11 @@
   font-weight: 400;
   color: var(--text-strong);
   max-width: 37.5rem;
-  overflow-wrap: normal;
+  white-space: normal;
+  overflow-wrap: break-word;
   word-break: normal;
   line-break: auto;
   hyphens: none;
-  text-wrap: pretty;
 }
 
 .projectInfoBody + .projectInfoBody {
@@ -208,8 +238,8 @@
 }
 
 .shell--info {
-  /* Reserve rail height but flush stage to slider: --rail-stack-h includes track top pad; omit it here */
-  --info-bottom-pad: calc(var(--rail-stack-h) - var(--space-6));
+  /* Reserve rail stack; omit .railTrack top pad (0 in info). Add --rail-inter-card-gap so stage ↔ rail matches card-to-card gap. */
+  --info-bottom-pad: calc(var(--rail-stack-h) - var(--space-6) + var(--rail-inter-card-gap));
 }
 
 .shell--info .fullBleedInner {
@@ -350,14 +380,6 @@
   font-weight: 400;
 }
 
-.identityMeta--center {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  text-align: center;
-  pointer-events: none;
-}
-
 .identityDots {
   display: inline-flex;
   flex-shrink: 0;
@@ -446,77 +468,115 @@
 .aboutOverlay--open {
   pointer-events: auto;
   opacity: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-4);
   box-sizing: border-box;
+}
+
+/* 8-column grid; lead copy inset ~25%, reading width ≈70vw */
+.aboutOverlayGrid {
+  min-height: 100%;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  column-gap: 1.25rem;
+  row-gap: var(--space-8);
+  padding: calc(var(--header-h) + var(--space-8)) var(--space-6) calc(var(--space-8) + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+  grid-template-rows: 1fr auto;
 }
 
 .aboutOverlayInner {
-  position: relative;
-  z-index: 1;
-  width: 30%;
-  min-width: min(16rem, 100% - 2rem);
-  max-width: calc(100vw - 2rem);
-  box-sizing: border-box;
+  grid-column: 3 / -1;
+  grid-row: 1;
+  width: 100%;
+  max-width: min(70vw, 52rem);
+  justify-self: start;
+  align-self: center;
   margin: 0;
-  padding: 0 var(--space-4);
-  text-align: center;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-.aboutOverlayBody {
-  margin: var(--space-4) 0 0;
-  color: var(--text-muted);
-  font-size: var(--font-size-base);
+.aboutOverlayCopy {
+  margin: 0;
+  padding: 0;
+}
+
+.aboutOverlayLead {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: clamp(32px, 2.35vw, 40px);
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+  color: var(--text-strong);
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  line-break: auto;
+  hyphens: none;
+}
+
+.aboutOverlayContact {
+  margin: 1.25rem 0 0;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: clamp(26px, 1.85vw, 32px);
+  line-height: 1.25;
+  letter-spacing: -0.028em;
+  color: var(--text-strong);
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  line-break: auto;
+  hyphens: none;
+}
+
+.aboutOverlayLead a,
+.aboutOverlayContact a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.12em;
+}
+
+.aboutOverlayLead a:hover,
+.aboutOverlayContact a:hover {
+  opacity: 0.55;
+}
+
+.aboutOverlayFoot {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.aboutOverlayFootMeta,
+.aboutOverlayFootHint {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-small);
   line-height: var(--line-height-body-px);
   font-weight: 400;
-  text-align: center;
-  text-wrap: balance;
-}
-
-.aboutOverlayInner > .aboutOverlayBody:first-child {
-  margin-top: 0;
-}
-
-.aboutOverlayBody a {
-  color: var(--text-strong);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
-}
-
-.aboutOverlayBody a:hover {
-  opacity: 0.85;
-}
-
-.aboutOverlayFooterNote {
-  position: absolute;
-  right: var(--space-4);
-  bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
-  z-index: 2;
-  width: auto;
-  margin: 0;
+  letter-spacing: -0.011em;
   color: var(--text-muted);
-  font-size: var(--font-size-small);
-  line-height: 1.5;
-  font-weight: 400;
+}
+
+.aboutOverlayFootMeta {
+  text-align: left;
+}
+
+.aboutOverlayFootHint {
   text-align: right;
-}
-
-.aboutOverlayFooterHint {
-  position: absolute;
-  left: 50%;
-  bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
-  z-index: 2;
-  transform: translateX(-50%);
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--font-size-small);
-  line-height: 1.5;
-  font-weight: 400;
-  text-align: center;
-  white-space: nowrap;
 }
 
 /* About overlay depth cue: everything underneath scales down slightly.
@@ -832,7 +892,7 @@
 .railTrack {
   /* Base gap + dynamic extra from scroll speed (set in JS as --rail-gap-extra) */
   --rail-gap-extra: 0px;
-  --rail-gap: calc(14px + var(--rail-gap-extra));
+  --rail-gap: calc(var(--rail-inter-card-gap) + var(--rail-gap-extra));
   position: relative;
   display: flex;
   flex-direction: row;
@@ -847,6 +907,106 @@
 /* Cards stay flex children of .railTrack; wrapper is for role="list" without the absolute dot. */
 .railTrackList {
   display: contents;
+}
+
+/* Outer footprint matches .card: 4/3 thumb + rail label gap + label block (same as .thumb + .cardTitleFrame) */
+.archiveTeaser {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--rail-card-label-gap);
+  width: calc(var(--rail-thumb-h) * 4 / 3);
+  margin-left: var(--space-4);
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: center;
+  transform-origin: center bottom;
+  align-self: flex-end;
+  box-sizing: border-box;
+}
+
+.archiveTeaser:focus-visible {
+  outline: 2px solid var(--text-strong);
+  outline-offset: 4px;
+}
+
+.archiveTeaserStack {
+  position: relative;
+  width: 100%;
+  height: var(--rail-thumb-h);
+  flex-shrink: 0;
+  aspect-ratio: 4 / 3;
+}
+
+.archiveTeaserCard {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc((var(--rail-thumb-h) * 4 / 3) * 0.74);
+  height: calc(var(--rail-thumb-h) * 0.68);
+  margin-left: calc((var(--rail-thumb-h) * 4 / 3) * 0.74 / -2);
+  margin-top: calc(var(--rail-thumb-h) * 0.68 / -2);
+  border-radius: 10px;
+  box-shadow:
+    0 2px 6px rgba(16, 22, 31, 0.12),
+    0 10px 22px rgba(16, 22, 31, 0.08);
+  transition: transform 0.22s var(--ease-view-inset);
+}
+
+.archiveTeaserCard--1 {
+  transform: translate(calc(var(--rail-thumb-h) * -0.042), calc(var(--rail-thumb-h) * 0.042)) rotate(-10deg);
+  z-index: 1;
+}
+
+.archiveTeaserCard--2 {
+  transform: translate(0, calc(var(--rail-thumb-h) * -0.025)) rotate(0deg);
+  z-index: 2;
+}
+
+.archiveTeaserCard--3 {
+  transform: translate(calc(var(--rail-thumb-h) * 0.042), calc(var(--rail-thumb-h) * 0.042)) rotate(10deg);
+  z-index: 3;
+}
+
+.archiveTeaserLabel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  margin: 0;
+  padding: 0 8px;
+  box-sizing: border-box;
+  min-height: var(--rail-card-label-h);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-small);
+  line-height: var(--line-height);
+  font-weight: 500;
+  letter-spacing: -0.011em;
+  color: var(--text-strong);
+  text-align: center;
+  word-break: normal;
+  overflow-wrap: break-word;
+  opacity: 0.5;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .archiveTeaser:hover .archiveTeaserLabel {
+    opacity: 1;
+  }
+
+  .archiveTeaser:hover .archiveTeaserCard--1 {
+    transform: translate(calc(var(--rail-thumb-h) * -0.05), calc(var(--rail-thumb-h) * 0.025)) rotate(-11deg);
+  }
+
+  .archiveTeaser:hover .archiveTeaserCard--2 {
+    transform: translate(0, calc(var(--rail-thumb-h) * -0.042)) rotate(0deg);
+  }
+
+  .archiveTeaser:hover .archiveTeaserCard--3 {
+    transform: translate(calc(var(--rail-thumb-h) * 0.05), calc(var(--rail-thumb-h) * 0.025)) rotate(11deg);
+  }
 }
 
 .card {
@@ -1161,6 +1321,20 @@
     --info-content-reveal-delay: 0s;
   }
 
+  .shell--archive-exit {
+    filter: none;
+    transition: none;
+  }
+
+  .shell--under-archive.shell--archive-revealing {
+    transition: none;
+    filter: none;
+  }
+
+  .archiveTeaserCard {
+    transition: none;
+  }
+
   .card {
     transition: none;
   }
@@ -1271,8 +1445,33 @@
 }
 
 @media (max-width: 860px) {
+  .aboutOverlayGrid {
+    column-gap: var(--space-4);
+    padding-left: var(--space-5);
+    padding-right: var(--space-5);
+  }
+
   .aboutOverlayInner {
-    width: min(92%, 24rem);
+    grid-column: 1 / -1;
+    width: 100%;
+    max-width: none;
+  }
+
+  .aboutOverlayLead {
+    font-size: clamp(32px, 6.2vw, 36px);
+  }
+
+  .aboutOverlayContact {
+    font-size: clamp(22px, 5vw, 28px);
+  }
+
+  .aboutOverlayFoot {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .aboutOverlayFootHint {
+    text-align: left;
   }
 
   .shell--info .fullBleedInner {
