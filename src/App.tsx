@@ -17,6 +17,27 @@ import './App.css'
 
 const USE_COLOR_MEDIA_PLACEHOLDERS = false
 
+const THEME_STORAGE_KEY = 'portfolio-theme'
+
+function readStoredTheme(): 'light' | 'dark' | null {
+  try {
+    const v = localStorage.getItem(THEME_STORAGE_KEY)
+    if (v === 'light' || v === 'dark') return v
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+function getInitialTheme(): 'light' | 'dark' {
+  const stored = readStoredTheme()
+  if (stored) return stored
+  if (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    return 'dark'
+  }
+  return 'light'
+}
+
 /** Matches `--project-media-radius` in index.css */
 const PROJECT_MEDIA_RADIUS = 20
 /** Matches `.cardLabelDot` / `.railDotAnchor` in App.css */
@@ -231,7 +252,7 @@ const INFO_RUBBER_CORRECT_RELEASE_MS_MIN = 50
 const INFO_RUBBER_CORRECT_RELEASE_MS_MAX = 150
 const INFO_RUBBER_WRONG_RELEASE_MS_MIN = 100
 const INFO_RUBBER_WRONG_RELEASE_MS_MAX = 360
-/** Touch vertical swipe (px) to commit info — phone: swipe up opens, swipe down closes (threshold only; desktop wheel unchanged) */
+/** Touch vertical swipe (px) to commit info — mirrors trackpad: swipe down opens, swipe up closes */
 const INFO_SWIPE_COMMIT_PY = 88
 
 /**
@@ -304,7 +325,7 @@ function touchVerticalShouldDeferToInfoPanelScroll(
   return false
 }
 
-/** Avoid treating in-panel scrolling as swipe-to-close on finger lift (close = swipe down / deltaY > 0). */
+/** Avoid treating panel scroll as swipe-to-close on finger lift (close = swipe up / deltaY < 0). */
 function touchEndVerticalIsPanelScrollNotClose(
   deltaY: number,
   absX: number,
@@ -317,10 +338,7 @@ function touchEndVerticalIsPanelScrollNotClose(
   if (panel.scrollHeight <= panel.clientHeight + 1) return false
   if (absY <= absX || absY < 12) return false
   const atTop = panel.scrollTop <= 0
-  const atBottom = panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 1
-  if (deltaY < 0 && !atTop) return true
-  if (deltaY > 0 && !atBottom) return true
-  return false
+  return deltaY < 0 && !atTop
 }
 const RAIL_WHEEL_X_MIN = 1.5
 const RAIL_HORIZONTAL_RATIO = 0.65
@@ -367,7 +385,7 @@ const CURSOR_HIDE_DISTANCE = 68
  *    280ms   rail cards finish rise-in (RAIL_CARD_ENTER_MS)
  *    300ms   floating dot arc between thumbs (RAIL_DOT_JUMP_MS)
  *
- * Info input: trackpad scroll down opens / up closes; phone: swipe up opens, swipe down closes (no horizontal touch).
+ * Info input: trackpad + phone — scroll / swipe down opens, up closes (no horizontal touch).
  * ───────────────────────────────────────────────────────── */
 const TIMING = {
   lineRevealMs: 220,
@@ -481,6 +499,7 @@ export default function App() {
   })
   const [isInfoOpen, setIsInfoOpen] = useState(false)
   const [isAboutOpen, setIsAboutOpen] = useState(false)
+  const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme)
   const [warsawTimeLabel, setWarsawTimeLabel] = useState(() => formatWarsawTimeLabel())
   const [aboutRevealVersion, setAboutRevealVersion] = useState(0)
   const [infoRubberX, setInfoRubberX] = useState(0)
@@ -1022,6 +1041,19 @@ export default function App() {
   const closeAbout = useCallback(() => {
     setIsAboutOpen(false)
   }, [])
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))
+  }, [])
+
+  useLayoutEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme)
+    } catch {
+      /* ignore */
+    }
+  }, [theme])
 
   useEffect(() => {
     const tick = () => setWarsawTimeLabel(formatWarsawTimeLabel())
@@ -1861,21 +1893,21 @@ export default function App() {
         setInfoRubberStretchX(0)
         setInfoRubberLive(true)
         setInfoRubberAxis('y')
-        /* Phone: swipe up opens; swipe down closes (opposite of trackpad vertical wheel). */
-        if (!isInfoOpen && deltaY < 0) {
-          const t = Math.min(1, -deltaY / INFO_SWIPE_COMMIT_PY)
+        /* Swipe down opens (same as trackpad scroll down); swipe up closes */
+        if (!isInfoOpen && deltaY > 0) {
+          const t = Math.min(1, deltaY / INFO_SWIPE_COMMIT_PY)
           setInfoRubberY(-t * INFO_PREVIEW_MAX_PY)
-          setInfoRubberStretchY(0)
-        } else if (isInfoOpen && deltaY > 0) {
-          const t = Math.min(1, deltaY / INFO_SWIPE_COMMIT_PY)
-          setInfoRubberY(0)
-          setInfoRubberStretchY(t * INFO_PREVIEW_MAX_STRETCH_Y)
-        } else if (!isInfoOpen && deltaY > 0) {
-          const t = Math.min(1, deltaY / INFO_SWIPE_COMMIT_PY)
-          setInfoRubberY(t * INFO_PREVIEW_WRONG_MAX_PY)
           setInfoRubberStretchY(0)
         } else if (isInfoOpen && deltaY < 0) {
           const t = Math.min(1, -deltaY / INFO_SWIPE_COMMIT_PY)
+          setInfoRubberY(0)
+          setInfoRubberStretchY(t * INFO_PREVIEW_MAX_STRETCH_Y)
+        } else if (!isInfoOpen && deltaY < 0) {
+          const t = Math.min(1, -deltaY / INFO_SWIPE_COMMIT_PY)
+          setInfoRubberY(t * INFO_PREVIEW_WRONG_MAX_PY)
+          setInfoRubberStretchY(0)
+        } else if (isInfoOpen && deltaY > 0) {
+          const t = Math.min(1, deltaY / INFO_SWIPE_COMMIT_PY)
           setInfoRubberY(0)
           setInfoRubberStretchY(-t * INFO_PREVIEW_WRONG_MAX_STRETCH_Y)
         } else {
@@ -1928,16 +1960,16 @@ export default function App() {
           setInfoRubberStretchX(0)
           setInfoRubberAxis(null)
           if (absY >= SWIPE_STEP) {
-            if (!isInfoOpen && deltaY < -SWIPE_STEP) openInfo()
-            else if (isInfoOpen && deltaY > SWIPE_STEP) closeInfo()
+            if (!isInfoOpen && deltaY > SWIPE_STEP) openInfo()
+            else if (isInfoOpen && deltaY < -SWIPE_STEP) closeInfo()
           }
           return
         }
         if (absY < INFO_SWIPE_COMMIT_PY) {
           releaseRubberBandSmooth()
-        } else if (!isInfoOpen && deltaY < -INFO_SWIPE_COMMIT_PY) {
+        } else if (!isInfoOpen && deltaY > INFO_SWIPE_COMMIT_PY) {
           openInfo()
-        } else if (isInfoOpen && deltaY > INFO_SWIPE_COMMIT_PY) {
+        } else if (isInfoOpen && deltaY < -INFO_SWIPE_COMMIT_PY) {
           closeInfo()
         } else {
           releaseRubberBandSmooth()
@@ -2226,6 +2258,57 @@ export default function App() {
         {isAboutOpen ? <p className="identityMeta identityMeta--center">{warsawTimeLabel}</p> : null}
 
         <div className="topRight">
+          <button
+            type="button"
+            className="themeToggle"
+            onClick={toggleTheme}
+            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
+          >
+            {theme === 'dark' ? (
+              <svg
+                className="themeToggleIcon"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden
+              >
+                <path
+                  d="M12 18C15.3137 18 18 15.3137 18 12C18 8.68629 15.3137 6 12 6C8.68629 6 6 8.68629 6 12C6 15.3137 8.68629 18 12 18Z"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M12 2V3.5M12 20.5V22M4.22 4.22L5.28 5.28M18.72 18.72L19.78 19.78M2 12H3.5M20.5 12H22M4.22 19.78L5.28 18.72M18.72 5.28L19.78 4.22"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+            ) : (
+              <svg
+                className="themeToggleIcon"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden
+              >
+                <path
+                  d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            )}
+          </button>
           <span className="projectTitle" aria-hidden={isInfoOpen || isAboutOpen}>
             {project.label}
           </span>
@@ -2274,7 +2357,7 @@ export default function App() {
               <span className="railHintChevron" aria-hidden>
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
                   <path
-                    d="M6 15L12 9L18 15"
+                    d="M6 9L12 15L18 9"
                     stroke="currentColor"
                     strokeWidth="1.5"
                     strokeLinecap="round"
@@ -2282,7 +2365,7 @@ export default function App() {
                   />
                 </svg>
               </span>
-              <span className="railHintLabel">swipe up for more</span>
+              <span className="railHintLabel">swipe down for more</span>
             </p>
             <div
               className="rail"

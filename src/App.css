@@ -660,8 +660,40 @@
   justify-self: end;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
   min-width: 0;
+}
+
+.themeToggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--icon-stroke);
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
+  transition: opacity 180ms ease;
+}
+
+.themeToggle:hover {
+  opacity: 0.45;
+}
+
+.themeToggle:focus-visible {
+  outline: 2px solid var(--text-strong);
+  outline-offset: 2px;
+}
+
+.themeToggleIcon {
+  display: block;
 }
 
 .projectTitle {
@@ -697,7 +729,7 @@
     var(--space-3) + var(--rail-thumb-h) + var(--rail-card-label-gap) + var(--rail-card-label-h)
   );
   --rail-hint-gap: var(--space-4);
-  /* Extra space between “swipe up” and cards only (cards stay flush to viewport bottom) */
+  /* Extra space between “swipe down” hint and cards only (cards stay flush to viewport bottom) */
   --rail-hint-lift: 24px;
   --rail-hint-pad: var(--space-5) var(--space-8);
   /* Fully clear the strip below the fold (+ small buffer so nothing peeks) */
