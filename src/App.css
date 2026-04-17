@@ -1,3 +1,49 @@
+/*
+ * Stage-driven chrome: sample luminance under header + hint (see src/lib/stageChromeSampling.ts).
+ * Identity row uses static copy colors when About or Info is open (those surfaces are light).
+ */
+.shell--chrome-on-dark {
+  --chrome-ambient-color: rgba(255, 255, 255, 0.96);
+}
+
+.shell--chrome-on-light {
+  --chrome-ambient-color: rgba(16, 22, 31, 0.94);
+}
+
+.shell--chrome-on-dark .identityIcon {
+  stroke: rgba(255, 255, 255, 0.94);
+}
+
+.shell--chrome-on-light .identityIcon {
+  stroke: rgba(16, 22, 31, 0.9);
+}
+
+.shell--chrome-on-dark .storySegment {
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.shell--chrome-on-dark .storyFill {
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.shell--chrome-on-light .storySegment {
+  background: rgba(16, 22, 31, 0.26);
+}
+
+.shell--chrome-on-light .storyFill {
+  background: rgba(16, 22, 31, 0.92);
+}
+
+.shell--about .identity,
+.shell--info.shell--chrome-on-dark .identity {
+  color: var(--text-strong);
+}
+
+.shell--about .identityIcon,
+.shell--info.shell--chrome-on-dark .identityIcon {
+  stroke: var(--icon-stroke);
+}
+
 .shell {
   /* Fixed rem only — no vw/clamp — so column width & type size stay steady while resizing */
   --info-side-pad: var(--space-6);
@@ -455,6 +501,11 @@
     transform 220ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* About open: hide small header wordmark — full-width mark lives in the overlay */
+.shell--about .identity {
+  opacity: 0;
+}
+
 .aboutOverlay {
   position: fixed;
   inset: 0;
@@ -471,26 +522,88 @@
   box-sizing: border-box;
 }
 
-/* 8-column grid; lead copy inset ~25%, reading width ≈70vw */
+/* Full-viewport about: mark fills all space above bottom band (padding unchanged) */
 .aboutOverlayGrid {
-  min-height: 100%;
+  height: 100dvh;
   min-height: 100dvh;
-  display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-  column-gap: 1.25rem;
-  row-gap: var(--space-8);
-  padding: calc(var(--header-h) + var(--space-8)) var(--space-6) calc(var(--space-8) + env(safe-area-inset-bottom, 0px));
+  max-height: 100dvh;
+  display: flex;
+  flex-direction: column;
   box-sizing: border-box;
-  grid-template-rows: 1fr auto;
+  padding: calc(var(--header-h) + var(--space-5)) var(--space-6) 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Fills width (inside horizontal padding) and all remaining height down to the bottom row */
+.aboutOverlayMarkSlot {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  container-type: size;
+  container-name: about-mark;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.aboutOverlayMark {
+  margin: 0;
+  padding: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  transform-origin: 0 0;
+  font-family: var(--font-ui);
+  font-weight: 700;
+  /* Scale with the slot so the word fills the available “screen” between padding and footer */
+  font-size: clamp(2.75rem, min(26cqw, 48cqh), 18rem);
+  line-height: 0.88;
+  letter-spacing: -0.045em;
+  color: var(--text-strong);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.aboutOverlayBottom {
+  margin-top: auto;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-6);
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-10) 0 calc(var(--space-8) + env(safe-area-inset-bottom, 0px));
+}
+
+.aboutOverlayMeta {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.aboutOverlayPlace,
+.aboutOverlayClock {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-body-px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-strong);
+}
+
+.aboutOverlayClock {
+  margin-top: 0.15rem;
 }
 
 .aboutOverlayInner {
-  grid-column: 3 / -1;
-  grid-row: 1;
-  width: 100%;
-  max-width: min(70vw, 52rem);
-  justify-self: start;
-  align-self: center;
+  flex: 0 1 70%;
+  width: 70%;
+  max-width: 70%;
+  min-width: 0;
   margin: 0;
   padding: 0;
   box-sizing: border-box;
@@ -505,24 +618,8 @@
   margin: 0;
   font-family: var(--font-ui);
   font-weight: 600;
-  font-size: clamp(32px, 2.35vw, 40px);
-  line-height: 1.2;
-  letter-spacing: -0.03em;
-  color: var(--text-strong);
-  text-align: left;
-  white-space: normal;
-  overflow-wrap: break-word;
-  word-break: normal;
-  line-break: auto;
-  hyphens: none;
-}
-
-.aboutOverlayContact {
-  margin: 1.25rem 0 0;
-  font-family: var(--font-ui);
-  font-weight: 600;
-  font-size: clamp(26px, 1.85vw, 32px);
-  line-height: 1.25;
+  font-size: clamp(1.125rem, 1.65vw, 1.5rem);
+  line-height: 1.28;
   letter-spacing: -0.028em;
   color: var(--text-strong);
   text-align: left;
@@ -533,50 +630,15 @@
   hyphens: none;
 }
 
-.aboutOverlayLead a,
-.aboutOverlayContact a {
+.aboutOverlayLead a {
   color: inherit;
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 0.12em;
 }
 
-.aboutOverlayLead a:hover,
-.aboutOverlayContact a:hover {
+.aboutOverlayLead a:hover {
   opacity: 0.55;
-}
-
-.aboutOverlayFoot {
-  grid-column: 1 / -1;
-  grid-row: 2;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-4);
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: none;
-}
-
-.aboutOverlayFootMeta,
-.aboutOverlayFootHint {
-  margin: 0;
-  font-family: var(--font-ui);
-  font-size: var(--font-size-small);
-  line-height: var(--line-height-body-px);
-  font-weight: 400;
-  letter-spacing: -0.011em;
-  color: var(--text-muted);
-}
-
-.aboutOverlayFootMeta {
-  text-align: left;
-}
-
-.aboutOverlayFootHint {
-  text-align: right;
 }
 
 /* About overlay depth cue: everything underneath scales down slightly.
@@ -755,7 +817,7 @@
     var(--space-3) + var(--rail-thumb-h) + var(--rail-card-label-gap) + var(--rail-card-label-h)
   );
   --rail-hint-gap: var(--space-4);
-  /* Extra space between “swipe down” hint and cards only (cards stay flush to viewport bottom) */
+  /* Extra space between “swipe up for more” hint and cards only (cards stay flush to viewport bottom) */
   --rail-hint-lift: 24px;
   --rail-hint-pad: var(--space-5) var(--space-8);
   /* Fully clear the strip below the fold (+ small buffer so nothing peeks) */
@@ -1446,32 +1508,30 @@
 
 @media (max-width: 860px) {
   .aboutOverlayGrid {
-    column-gap: var(--space-4);
     padding-left: var(--space-5);
     padding-right: var(--space-5);
   }
 
+  .aboutOverlayMark {
+    font-size: clamp(2rem, min(30cqw, 40cqh), 5.5rem);
+  }
+
+  .aboutOverlayBottom {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-5);
+    padding-top: var(--space-8);
+  }
+
   .aboutOverlayInner {
-    grid-column: 1 / -1;
+    flex: 1 1 auto;
     width: 100%;
-    max-width: none;
+    max-width: 100%;
+    order: -1;
   }
 
   .aboutOverlayLead {
-    font-size: clamp(32px, 6.2vw, 36px);
-  }
-
-  .aboutOverlayContact {
-    font-size: clamp(22px, 5vw, 28px);
-  }
-
-  .aboutOverlayFoot {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .aboutOverlayFootHint {
-    text-align: left;
+    font-size: clamp(1.05rem, 3.8vw, 1.35rem);
   }
 
   .shell--info .fullBleedInner {

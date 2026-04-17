@@ -1,4 +1,5 @@
 import {
+  forwardRef,
   startTransition,
   useCallback,
   useEffect,
@@ -7,6 +8,7 @@ import {
   useReducer,
   useRef,
   useState,
+  type Ref,
 } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -21,6 +23,9 @@ import { ArchiveTeaser } from './components/ArchiveTeaser'
 import { ARCHIVE_SHELL_EXIT_MS } from './lib/archiveShellTiming'
 import { easeViewInset } from './lib/easeViewInset'
 import { runWithViewTransition } from './lib/viewTransition'
+import { computeAboutMarkFlipInvert } from './lib/aboutMarkFlip'
+import type { StageChromeTone } from './lib/stageChromeSampling'
+import { sampleStageChromeTone } from './lib/stageChromeSampling'
 import './App.css'
 
 const USE_COLOR_MEDIA_PLACEHOLDERS = false
@@ -118,18 +123,17 @@ function mediaPlaceholderColor(media: Media) {
   return `hsl(${hue} ${saturation}% ${lightness}%)`
 }
 
-function MediaView({
-  media,
-  className,
-  fit,
-  variant = 'full',
-}: {
-  media: Media
-  className?: string
-  fit: 'cover' | 'contain'
-  /** Slider cards: show poster still for video instead of playing */
-  variant?: 'full' | 'thumb'
-}) {
+const MediaView = forwardRef<
+  HTMLImageElement | HTMLVideoElement,
+  {
+    media: Media
+    className?: string
+    fit: 'cover' | 'contain'
+    /** Slider cards: show poster still for video instead of playing */
+    variant?: 'full' | 'thumb'
+    onMediaDecoded?: () => void
+  }
+>(function MediaView({ media, className, fit, variant = 'full', onMediaDecoded }, ref) {
   if (USE_COLOR_MEDIA_PLACEHOLDERS) {
     return <div className={className} style={{ background: mediaPlaceholderColor(media) }} aria-hidden />
   }
@@ -138,16 +142,19 @@ function MediaView({
     if (variant === 'thumb' && media.poster) {
       return (
         <img
+          ref={ref as Ref<HTMLImageElement>}
           className={className}
           src={media.poster}
           alt=""
           draggable={false}
           style={{ objectFit: fit }}
+          onLoad={onMediaDecoded}
         />
       )
     }
     return (
       <video
+        ref={ref as Ref<HTMLVideoElement>}
         className={className}
         src={media.src}
         poster={media.poster}
@@ -158,19 +165,22 @@ function MediaView({
         preload={variant === 'thumb' ? 'metadata' : 'auto'}
         controls={false}
         style={{ objectFit: fit }}
+        onLoadedData={onMediaDecoded}
       />
     )
   }
   return (
     <img
+      ref={ref as Ref<HTMLImageElement>}
       className={className}
       src={media.src}
       alt={media.alt}
       draggable={false}
       style={{ objectFit: fit }}
+      onLoad={onMediaDecoded}
     />
   )
-}
+})
 
 const SWIPE_STEP = 42
 /** prefers-reduced-motion: coarser wheel threshold before info open/close */
@@ -274,11 +284,19 @@ const CURSOR_HIDE_DISTANCE = 68
  *    280ms   rail cards finish rise-in (RAIL_CARD_ENTER_MS)
  *    300ms   floating dot arc between thumbs (RAIL_DOT_JUMP_MS)
  *
+ * About overlay:
+ *      0ms   FLIP: mark translates + scales from header `.identity` (ease-out, GPU)
+ *   ~360ms   lead copy fades up (overlap tail of mark — ABOUT_MARK_LEAD_OVERLAP_MS)
+ *
  * Info input: trackpad + phone — scroll / swipe down opens, up closes (no horizontal touch).
  * ───────────────────────────────────────────────────────── */
 const TIMING = {
   lineRevealMs: 220,
   aboutLineRevealDelayMs: 40,
+  /** About h1: FLIP enter from header wordmark (ease-out; under 500ms UI cap) */
+  aboutMarkFlipMs: 460,
+  /** Bio starts slightly before mark fully settles — reads as one gesture */
+  aboutMarkLeadOverlapMs: 140,
   stageInfoMs: VIEW_RESIZE_MS,
   railCardEnterMs: RAIL_CARD_ENTER_MS,
   railDotJumpMs: RAIL_DOT_JUMP_MS,
@@ -371,14 +389,28 @@ function pointToRectDistance(x: number, y: number, rect: DOMRect) {
   return Math.hypot(dx, dy)
 }
 
-function formatWarsawTimeLabel(now = new Date()) {
+function warsawClockWithZone(now = new Date()) {
   const time = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Europe/Warsaw',
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
   }).format(now)
-  return `Poland, Warsaw, PL, ${time}`
+  const longTz = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Warsaw',
+    timeZoneName: 'long',
+  })
+    .formatToParts(now)
+    .find((p) => p.type === 'timeZoneName')?.value
+  const isDst = longTz ? /summer|daylight/i.test(longTz) : false
+  return `${time} ${isDst ? 'CEST' : 'CET'}`
+}
+
+function formatWarsawAboutMeta(now = new Date()) {
+  return {
+    place: 'Warsaw, Poland',
+    clock: warsawClockWithZone(now),
+  }
 }
 
 type PlainTeaserRect = { top: number; left: number; width: number; height: number }
@@ -394,7 +426,7 @@ export default function PortfolioApp() {
   })
   const [isInfoOpen, setIsInfoOpen] = useState(false)
   const [isAboutOpen, setIsAboutOpen] = useState(false)
-  const [warsawTimeLabel, setWarsawTimeLabel] = useState(() => formatWarsawTimeLabel())
+  const [warsawAboutMeta, setWarsawAboutMeta] = useState(() => formatWarsawAboutMeta())
   const [aboutRevealVersion, setAboutRevealVersion] = useState(0)
   const [railStagger, setRailStagger] = useState<RailStaggerState>({
     ready: false,
@@ -455,11 +487,14 @@ export default function PortfolioApp() {
   /** When true, WAAPI owns transform — don't apply React inline translate */
   const [railDotAnimating, setRailDotAnimating] = useState(false)
   const stageWrapRef = useRef<HTMLElement>(null)
+  const stageMediaRef = useRef<HTMLImageElement | HTMLVideoElement>(null)
+  const [stageChromeTone, setStageChromeTone] = useState<StageChromeTone>('onDark')
   const stageHitRef = useRef<HTMLDivElement>(null)
   const projectInfoPanelRef = useRef<HTMLElement | null>(null)
   const railWrapRef = useRef<HTMLElement>(null)
   const railRef = useRef<HTMLDivElement>(null)
-  const aboutOverlayInnerRef = useRef<HTMLDivElement | null>(null)
+  const aboutOverlayGridRef = useRef<HTMLDivElement | null>(null)
+  const identityRef = useRef<HTMLParagraphElement | null>(null)
   const aboutCloseCursorRef = useRef<HTMLDivElement | null>(null)
   const shellRef = useRef<HTMLDivElement>(null)
   const archiveExitTimerRef = useRef<number | null>(null)
@@ -557,6 +592,16 @@ export default function PortfolioApp() {
   const gallery = project.gallery
   const asset = gallery[assetIndex] ?? gallery[0]
   const canStep = gallery.length > 1
+
+  const runChromeSample = useCallback(() => {
+    if (USE_COLOR_MEDIA_PLACEHOLDERS) return
+    const el = stageMediaRef.current
+    if (!el) return
+    const next = sampleStageChromeTone(el)
+    if (next) {
+      setStageChromeTone((prev) => (prev === next ? prev : next))
+    }
+  }, [])
 
   const goPrev = useCallback(() => {
     dispatch({ type: 'prevAsset' })
@@ -889,7 +934,7 @@ export default function PortfolioApp() {
   }, [])
 
   useEffect(() => {
-    const tick = () => setWarsawTimeLabel(formatWarsawTimeLabel())
+    const tick = () => setWarsawAboutMeta(formatWarsawAboutMeta())
     tick()
     const timer = window.setInterval(tick, 15000)
     return () => window.clearInterval(timer)
@@ -928,18 +973,35 @@ export default function PortfolioApp() {
 
   useEffect(() => {
     if (!isAboutOpen) return
-    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    const overlay = aboutOverlayInnerRef.current
-    if (!overlay) return
+    const grid = aboutOverlayGridRef.current
+    if (!grid) return
+    const reducedMotion =
+      typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
     let disposed = false
-    let rafOuter = 0
-    let rafInner = 0
-    rafOuter = requestAnimationFrame(() => {
-      rafInner = requestAnimationFrame(() => {
-        const lead = overlay.querySelector<HTMLElement>('[data-about-reveal="block"]')
-        if (!lead || disposed) return
-        gsap.killTweensOf(lead)
-        gsap.set(lead, { autoAlpha: 0, y: 8 })
+    let raf1 = 0
+    let raf2 = 0
+    let raf3 = 0
+    let tl: gsap.core.Timeline | null = null
+
+    const run = () => {
+      if (disposed) return
+      const identityEl = identityRef.current
+      const mark = grid.querySelector<HTMLElement>('.aboutOverlayMark')
+      const lead = grid.querySelector<HTMLElement>('[data-about-reveal="block"]')
+      if (!lead || !mark) return
+
+      gsap.killTweensOf([mark, lead])
+
+      if (reducedMotion) {
+        gsap.set(mark, { clearProps: 'transform' })
+        gsap.set(lead, { autoAlpha: 1, y: 0 })
+        return
+      }
+
+      if (!identityEl) {
+        gsap.set(mark, { clearProps: 'transform' })
+        gsap.set(lead, { autoAlpha: 0, y: 10 })
         gsap.to(lead, {
           autoAlpha: 1,
           y: 0,
@@ -948,12 +1010,75 @@ export default function PortfolioApp() {
           delay: TIMING.aboutLineRevealDelayMs / 1000,
           overwrite: 'auto',
         })
+        return
+      }
+
+      const from = identityEl.getBoundingClientRect()
+      const to = mark.getBoundingClientRect()
+      const inv = computeAboutMarkFlipInvert(from, to)
+
+      if (!inv || to.width < 2 || to.height < 2) {
+        gsap.set(mark, { clearProps: 'transform' })
+        gsap.set(lead, { autoAlpha: 0, y: 10 })
+        gsap.to(lead, {
+          autoAlpha: 1,
+          y: 0,
+          duration: TIMING.lineRevealMs / 1000,
+          ease: 'power1.out',
+          delay: TIMING.aboutLineRevealDelayMs / 1000,
+          overwrite: 'auto',
+        })
+        return
+      }
+
+      /* Enter = ease-out (animations.dev); only transform + opacity on lead */
+      tl = gsap.timeline({ defaults: { ease: 'power2.out' } })
+      tl.fromTo(
+        mark,
+        {
+          x: inv.dx,
+          y: inv.dy,
+          scale: inv.scale,
+          transformOrigin: '0% 0%',
+          immediateRender: true,
+        },
+        {
+          x: 0,
+          y: 0,
+          scale: 1,
+          duration: TIMING.aboutMarkFlipMs / 1000,
+          ease: 'power2.out',
+          transformOrigin: '0% 0%',
+        },
+      ).fromTo(
+        lead,
+        { autoAlpha: 0, y: 10 },
+        {
+          autoAlpha: 1,
+          y: 0,
+          duration: TIMING.lineRevealMs / 1000,
+          ease: 'power1.out',
+        },
+        `-=${TIMING.aboutMarkLeadOverlapMs / 1000}`,
+      )
+    }
+
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        raf3 = requestAnimationFrame(run)
       })
     })
+
     return () => {
       disposed = true
-      cancelAnimationFrame(rafOuter)
-      cancelAnimationFrame(rafInner)
+      tl?.kill()
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
+      cancelAnimationFrame(raf3)
+      const mark = grid.querySelector<HTMLElement>('.aboutOverlayMark')
+      const lead = grid.querySelector<HTMLElement>('[data-about-reveal="block"]')
+      if (mark) gsap.killTweensOf(mark)
+      if (lead) gsap.killTweensOf(lead)
     }
   }, [isAboutOpen, aboutRevealVersion])
 
@@ -1481,6 +1606,63 @@ export default function PortfolioApp() {
     }
   }, [isInfoOpen])
 
+  useLayoutEffect(() => {
+    if (USE_COLOR_MEDIA_PLACEHOLDERS) return
+    let raf = 0
+    raf = requestAnimationFrame(() => {
+      runChromeSample()
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [asset, isInfoOpen, projectIndex, assetIndex, runChromeSample])
+
+  useEffect(() => {
+    if (USE_COLOR_MEDIA_PLACEHOLDERS) return
+    const wrap = stageWrapRef.current
+    if (!wrap) return
+    const ro = new ResizeObserver(() => {
+      runChromeSample()
+    })
+    ro.observe(wrap)
+    window.addEventListener('resize', runChromeSample)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', runChromeSample)
+    }
+  }, [runChromeSample])
+
+  useEffect(() => {
+    if (USE_COLOR_MEDIA_PLACEHOLDERS) return
+    if (asset.kind !== 'video') return
+    const el = stageMediaRef.current
+    if (!(el instanceof HTMLVideoElement)) return
+    const v = el
+    let handle = 0
+    let cancelled = false
+
+    const tick = () => {
+      if (cancelled) return
+      runChromeSample()
+      if ('requestVideoFrameCallback' in v) {
+        handle = v.requestVideoFrameCallback(tick)
+      }
+    }
+
+    if ('requestVideoFrameCallback' in v) {
+      handle = v.requestVideoFrameCallback(tick)
+      return () => {
+        cancelled = true
+        v.cancelVideoFrameCallback(handle)
+      }
+    }
+
+    const onTime = () => runChromeSample()
+    el.addEventListener('timeupdate', onTime)
+    return () => {
+      cancelled = true
+      el.removeEventListener('timeupdate', onTime)
+    }
+  }, [asset, runChromeSample])
+
   useEffect(() => {
     if (USE_COLOR_MEDIA_PLACEHOLDERS) return
     const nextAsset = gallery[(assetIndex + 1) % gallery.length]
@@ -1692,7 +1874,9 @@ export default function PortfolioApp() {
   return (
     <div
       ref={shellRef}
-      className={`shell ${isInfoOpen ? 'shell--info' : ''} ${isAboutOpen ? 'shell--about' : ''}`}
+      className={`shell ${isInfoOpen ? 'shell--info' : ''} ${isAboutOpen ? 'shell--about' : ''} ${
+        stageChromeTone === 'onLight' ? 'shell--chrome-on-light' : 'shell--chrome-on-dark'
+      }`}
       aria-hidden={archiveOpen}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
@@ -1751,7 +1935,13 @@ export default function PortfolioApp() {
                 cornerSmoothing={stageCornerRadius > 0.5 ? 1 : 0}
                 className="stageMediaSquircle"
               >
-                <MediaView media={asset} fit="cover" className="stageFill" />
+                <MediaView
+                  ref={stageMediaRef}
+                  media={asset}
+                  fit="cover"
+                  className="stageFill"
+                  onMediaDecoded={runChromeSample}
+                />
                 <SquircleMediaStroke
                   cornerRadius={Math.max(0, stageCornerRadius)}
                   cornerSmoothing={stageCornerRadius > 0.5 ? 1 : 0}
@@ -1800,7 +1990,9 @@ export default function PortfolioApp() {
 
       <header className="topBar">
         <div className="topBarLead">
-          <p className="identity">Franek Fuks</p>
+          <p ref={identityRef} className="identity" aria-hidden={isAboutOpen}>
+            fuksfranek
+          </p>
           <button
             type="button"
             className={`identityDots ${isAboutOpen ? 'identityDots--active identityDots--stolen' : ''}`}
@@ -1846,23 +2038,28 @@ export default function PortfolioApp() {
 
       {isAboutOpen ? (
         <aside id="about-overlay" className="aboutOverlay aboutOverlay--open" aria-hidden={false} onClick={closeAbout}>
-          <div className="aboutOverlayGrid">
-            <div className="aboutOverlayInner" ref={aboutOverlayInnerRef}>
-              <div className="aboutOverlayCopy" data-about-reveal="block">
-                <p className="aboutOverlayLead">
-                  Multidisciplinary designer focused on visual systems, digital products, and motion-forward experiences.
-                  Currently designing and building websites and brands for US-based startups at Tonik.
-                </p>
-                <p className="aboutOverlayContact">
-                  Open for freelance work{' '}
-                  <a href="mailto:franek.fuks@gmail.com">franek.fuks@gmail.com</a>
+          <div className="aboutOverlayGrid" ref={aboutOverlayGridRef}>
+            <div className="aboutOverlayMarkSlot">
+              <h1 className="aboutOverlayMark">fuksfranek</h1>
+            </div>
+            <div className="aboutOverlayBottom">
+              <div className="aboutOverlayMeta">
+                <p className="aboutOverlayPlace">{warsawAboutMeta.place}</p>
+                <p className="aboutOverlayClock" aria-live="polite">
+                  {warsawAboutMeta.clock}
                 </p>
               </div>
+              <div className="aboutOverlayInner">
+                <div className="aboutOverlayCopy" data-about-reveal="block">
+                  <p className="aboutOverlayLead">
+                    I&apos;m Franek, a 21yo designer working at the intersection of brand, digital and traditional
+                    graphic design. Currently designing and building websites for US-based startups at Tonik. Open for
+                    freelance, available from September —{' '}
+                    <a href="mailto:franek.fuks@gmail.com">franek.fuks@gmail.com</a>
+                  </p>
+                </div>
+              </div>
             </div>
-            <footer className="aboutOverlayFoot">
-              <p className="aboutOverlayFootMeta">{warsawTimeLabel}</p>
-              <p className="aboutOverlayFootHint">Click anywhere to close</p>
-            </footer>
           </div>
         </aside>
       ) : null}
@@ -1878,7 +2075,7 @@ export default function PortfolioApp() {
               <span className="railHintChevron" aria-hidden>
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
                   <path
-                    d="M6 9L12 15L18 9"
+                    d="M6 15L12 9L18 15"
                     stroke="currentColor"
                     strokeWidth="1.5"
                     strokeLinecap="round"
@@ -1886,7 +2083,7 @@ export default function PortfolioApp() {
                   />
                 </svg>
               </span>
-              <span className="railHintLabel">swipe down for more</span>
+              <span className="railHintLabel">swipe up for more</span>
             </p>
             <div
               className="rail"

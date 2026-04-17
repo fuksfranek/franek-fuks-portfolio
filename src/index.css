@@ -41,7 +41,7 @@
   /* Headings: 1.2–1.3 */
   --line-height-heading: 1.25;
   /*
-   * Full-viewport chrome: name (top left), project title (top right), rail hint (“swipe down…”).
+   * Full-viewport chrome: name (top left), project title (top right), rail hint (“swipe up for more”).
    * Keep in sync with UI copy: "14px Inter" + 21px line-height.
    */
   --chrome-ambient-font-family: var(--font-ui);
