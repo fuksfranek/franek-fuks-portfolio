@@ -1,6 +1,5 @@
 import gsap from 'gsap'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { flushSync } from 'react-dom'
 import { createPortal } from 'react-dom'
 import { archiveItems } from '../data/archivePlaceholders'
 import type { ArchivePlainRect } from '../lib/archiveGeometry'
@@ -14,29 +13,69 @@ const TILE_COUNT = archiveItems.length
 /* ─────────────────────────────────────────────────────────
  * ANIMATION STORYBOARD — archive overlay (hash #archive)
  *
+ * Read top-to-bottom. ms are wall-clock from the trigger.
+ *
  * ENTER (stack → masonry)
- *   0ms    FLIP clones: stagger 5ms; flight uses easeViewInset (same as --ease-view-inset + .archivePageContent)
- *   end    last tile lands ≈ ENTER_FLY_MS + (N-1)*5 ms → show real cells
+ *    0ms   25 fly clones spawn at the teaser stack origin
+ *          (opacity 0.55, scaled to teaser thumbnail size).
+ *          Real cells render with opacity 0 at their final masonry
+ *          positions (layout already settled — no reflow during flight).
+ *
+ *    0ms   Per-clone flight to target starts (stagger 6ms — tight enough
+ *          that the wave reads as one unified gesture, not column-by-column):
+ *          • 0–140 ms : clone fades 0.55 → 1   (masks the spawn pop)
+ *          • 0–620 ms : translate + scale, easeOutQuint (soft tail)
+ *          • at 55%  : matching real cell crossfade-in begins
+ *                      (CSS opacity 0→1, 280 ms ease-out-quint)
+ *          • last 200ms : clone tail-fades 1 → 0 (power2.in)
+ *          → cell + clone overlap ≥ 1 for the whole handoff window;
+ *            no empty frame, no shadow pop.
+ *
+ *  764ms   Last clone lands → master onComplete reconciles
+ *          flyPending=false (no-op if all per-cell handoffs ran)
+ *          and removes the fly host. dockReady flips → back button
+ *          fades + scales in over 220ms (it was hidden the whole time
+ *          so the flying clones never appeared "in front of" it).
  *
  * EXIT (Back — one shared clock)
- *   0ms    shell--archive-revealing + --archive-shell-reveal-ms = EXIT_TOTAL_MS (CSS --ease-view-inset)
- *   0ms    overlay opacity 1→0 over EXIT_TOTAL_MS with easeViewInset (paired with shell opacity/blur)
- *   0ms    N FLIP clones grid→stack: stagger EXIT_STAGGER_MS; per-tile duration fills EXIT_TOTAL_MS;
- *          power2.inOut — gentler on-screen travel than strong ease-in (power3.in)
- *   EXIT_TOTAL_MS  unmount + clear hash
+ *    0ms   shell--archive-revealing + --archive-shell-reveal-ms = EXIT_TOTAL_MS
+ *          (CSS --ease-view-inset on shell opacity/blur)
+ *    0ms   overlay opacity 1 → 0 over EXIT_TOTAL_MS (easeViewInset)
+ *    0ms   25 FLIP clones grid → stack: stagger EXIT_STAGGER_MS,
+ *          per-tile duration fills EXIT_TOTAL_MS (power2.inOut —
+ *          gentler on-screen travel than power3.in)
+ *  EXIT_TOTAL_MS   unmount + clear hash
  * ───────────────────────────────────────────────────────── */
 
+/**
+ * Soft ease-out, equivalent to cubic-bezier(0.22, 1, 0.36, 1).
+ * Heavily weighted long tail — element decelerates over a longer
+ * window than ease-out-cubic, masking the precise landing moment.
+ */
+function easeOutQuint(t: number): number {
+  if (t <= 0) return 0
+  if (t >= 1) return 1
+  return 1 - Math.pow(1 - t, 5)
+}
+
 const TIMING = {
-  enterFlyMs: 340,
-  enterStaggerMs: 5,
-  enterEase: easeViewInset,
-  /** Single budget for shell reveal ∥ overlay dissolve ∥ FLIP gather (~15% snappier than enter tail) */
-  exitTotalMs: 320,
-  exitStaggerMs: 4,
+  /* ENTER (per-tile clock) */
+  enterFlightMs: 620,
+  enterStaggerMs: 6,
+  enterCloneFadeInMs: 140,
+  enterCloneFadeOutMs: 200,
+  enterCellRevealAtFraction: 0.55, // hand off to real cell at this point of each clone's flight
+  enterCloneInitialOpacity: 0.55,
+  enterEase: easeOutQuint,
+
+  /* EXIT (single shared budget) */
+  exitTotalMs: 360,
+  exitStaggerMs: 5,
   exitEase: 'power2.inOut',
   exitOverlayEase: easeViewInset,
 } as const
 
+/** Per-clone exit duration so that the last-staggered clone still finishes inside EXIT_TOTAL_MS. */
 function exitFlyDurationSec(tileCount: number): number {
   const span = TIMING.exitTotalMs / 1000
   const stagger = TIMING.exitStaggerMs / 1000
@@ -69,17 +108,109 @@ function resolveTeaserTriplet(entry: ArchivePlainRect[] | null | undefined): Arc
   return teaserTargetsFromStackBounds(bounds)
 }
 
-function flyCard(
+/**
+ * ENTER: spawn a clone at `from`, fly to `to`, crossfade-handoff to the
+ * real cell at `revealAtFraction` of the flight, then tail-fade to 0.
+ *
+ * The clone uses GPU-only props (transform + opacity) for the duration.
+ */
+function flyCardEnter(
+  host: HTMLElement,
+  color: string,
+  from: ArchivePlainRect,
+  to: ArchivePlainRect,
+  zIndex: number,
+  onHandoff: () => void,
+): gsap.core.Timeline {
+  const el = document.createElement('div')
+  el.className = 'archiveFlyCard archiveFlyCard--enter'
+  el.style.background = color
+  el.style.borderRadius = '14px'
+  /* Lighter shadow during flight so the moment the real cell crossfades
+   * in (with its heavier shadow) reads as "settling," not "popping." */
+  el.style.boxShadow = '0 8px 22px rgba(0, 0, 0, 0.18)'
+  host.appendChild(el)
+
+  const flightSec = TIMING.enterFlightMs / 1000
+  const fadeInSec = TIMING.enterCloneFadeInMs / 1000
+  const fadeOutSec = TIMING.enterCloneFadeOutMs / 1000
+  const handoffAtSec = (TIMING.enterFlightMs * TIMING.enterCellRevealAtFraction) / 1000
+  const tailStartSec = Math.max(handoffAtSec, flightSec - fadeOutSec)
+
+  gsap.set(el, {
+    position: 'fixed',
+    left: 0,
+    top: 0,
+    width: to.width,
+    height: to.height,
+    x: from.left,
+    y: from.top,
+    scaleX: from.width / to.width,
+    scaleY: from.height / to.height,
+    transformOrigin: '0 0',
+    force3D: true,
+    willChange: 'transform, opacity',
+    zIndex,
+    pointerEvents: 'none',
+    opacity: TIMING.enterCloneInitialOpacity,
+  })
+
+  const tl = gsap.timeline({
+    onComplete: () => {
+      el.remove()
+    },
+  })
+
+  tl.to(
+    el,
+    {
+      x: to.left,
+      y: to.top,
+      scaleX: 1,
+      scaleY: 1,
+      duration: flightSec,
+      ease: TIMING.enterEase,
+    },
+    0,
+  )
+
+  tl.to(
+    el,
+    {
+      opacity: 1,
+      duration: fadeInSec,
+      ease: TIMING.enterEase,
+    },
+    0,
+  )
+
+  tl.call(onHandoff, undefined, handoffAtSec)
+
+  tl.to(
+    el,
+    {
+      opacity: 0,
+      duration: fadeOutSec,
+      ease: 'power2.in',
+    },
+    tailStartSec,
+  )
+
+  return tl
+}
+
+/** EXIT: simple FLIP clone, gathers from grid back to stack. No fade. */
+function flyCardExit(
   host: HTMLElement,
   color: string,
   from: ArchivePlainRect,
   to: ArchivePlainRect,
   durationSec: number,
-  ease: string | ((t: number) => number),
+  ease: string,
   zIndex: number,
 ): gsap.core.Timeline {
   const el = document.createElement('div')
-  el.className = 'archiveFlyCard'
+  el.className = 'archiveFlyCard archiveFlyCard--exit'
   el.style.background = color
   el.style.borderRadius = '14px'
   el.style.boxShadow = '0 12px 28px rgba(16, 22, 31, 0.12)'
@@ -97,6 +228,7 @@ function flyCard(
     scaleY: from.height / to.height,
     transformOrigin: '0 0',
     force3D: true,
+    willChange: 'transform',
     zIndex,
     pointerEvents: 'none',
   })
@@ -122,20 +254,15 @@ function addEnterFlights(
   host: HTMLElement,
   triplet: ArchivePlainRect[],
   targets: ArchivePlainRect[],
+  cellRefs: (HTMLButtonElement | null)[],
 ) {
-  const dur = TIMING.enterFlyMs / 1000
   const step = TIMING.enterStaggerMs / 1000
   archiveItems.forEach((item, i) => {
     master.add(
-      flyCard(
-        host,
-        item.color,
-        stackOriginRect(i, triplet),
-        targets[i]!,
-        dur,
-        TIMING.enterEase,
-        200 + i,
-      ),
+      flyCardEnter(host, item.color, stackOriginRect(i, triplet), targets[i]!, 200 + i, () => {
+        const cell = cellRefs[i]
+        if (cell) cell.classList.remove('archiveCell--flyPending')
+      }),
       i * step,
     )
   })
@@ -152,7 +279,7 @@ function addExitFlights(
   archiveItems.forEach((item, i) => {
     const z = 260 + (TILE_COUNT - 1 - i)
     master.add(
-      flyCard(host, item.color, fromRects[i]!, stackOriginRect(i, triplet), flyDurSec, TIMING.exitEase, z),
+      flyCardExit(host, item.color, fromRects[i]!, stackOriginRect(i, triplet), flyDurSec, TIMING.exitEase, z),
       i * step,
     )
   })
@@ -170,6 +297,10 @@ export function ArchiveOverlay({ entryRects, onClosed, onShellRevealStart }: Arc
     typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
   const [flyPending, setFlyPending] = useState(() => !reducedMotion)
+  /* Dock back-button stays hidden during enter so it never appears "behind"
+   * the flying clones (which spawn near the bottom-center, right where the
+   * dock sits). Reveals once cards have settled. */
+  const [dockReady, setDockReady] = useState(() => reducedMotion)
   const [lightboxId, setLightboxId] = useState<string | null>(null)
 
   const overlayRootRef = useRef<HTMLDivElement>(null)
@@ -225,14 +356,15 @@ export function ArchiveOverlay({ entryRects, onClosed, onShellRevealStart }: Arc
 
         const master = gsap.timeline({
           onComplete: () => {
-            /* Show real cells before removing fly clones — avoids one empty frame (feels like a reload). */
-            flushSync(() => {
-              setFlyPending(false)
-            })
+            /* Reconciliation: per-cell handoffs already removed --flyPending
+             * from each cell as its clone landed. Setting state here is a
+             * safety net so React's source of truth matches the DOM. */
+            setFlyPending(false)
+            setDockReady(true)
             removeFlyHost()
           },
         })
-        addEnterFlights(master, host, triplet, targets)
+        addEnterFlights(master, host, triplet, targets, cellRefs.current)
       }
 
       run()
@@ -371,8 +503,14 @@ export function ArchiveOverlay({ entryRects, onClosed, onShellRevealStart }: Arc
         </div>
 
         <div className="archiveBackDock">
-          <button type="button" className="archiveBack archiveBack--dock" onClick={handleBack}>
-            ← Back
+          <button
+            type="button"
+            className={`archiveBack archiveBack--dock ${dockReady ? '' : 'archiveBack--dock--pending'}`}
+            onClick={handleBack}
+            aria-hidden={!dockReady}
+            tabIndex={dockReady ? 0 : -1}
+          >
+            Back
           </button>
         </div>
       </div>

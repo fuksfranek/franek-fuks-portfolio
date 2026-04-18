@@ -123,6 +123,74 @@ function mediaPlaceholderColor(media: Media) {
   return `hsl(${hue} ${saturation}% ${lightness}%)`
 }
 
+/**
+ * Some of the WebMs in the gallery are exported without a duration field in the EBML
+ * header, so `<video>.duration` reports `Infinity` until the entire file is scanned.
+ * That breaks the story-meter progress bar (and any seek-aware UI).
+ *
+ * The fix: fetch the file once, hand the browser a `blob:` URL pointing at the
+ * fully-buffered bytes, and `duration` becomes available immediately. We cache the
+ * resolved URLs in-memory keyed by source so a second visit is free.
+ */
+const videoBlobCache = new Map<string, string>()
+const videoBlobInflight = new Map<string, Promise<string>>()
+
+function loadVideoAsBlobUrl(src: string): Promise<string> {
+  const cached = videoBlobCache.get(src)
+  if (cached) return Promise.resolve(cached)
+  const inflight = videoBlobInflight.get(src)
+  if (inflight) return inflight
+  const p = fetch(src, { credentials: 'same-origin' })
+    .then((res) => {
+      if (!res.ok) throw new Error(`Video fetch failed: ${res.status} ${src}`)
+      return res.blob()
+    })
+    .then((blob) => {
+      const url = URL.createObjectURL(blob)
+      videoBlobCache.set(src, url)
+      videoBlobInflight.delete(src)
+      return url
+    })
+    .catch((err) => {
+      videoBlobInflight.delete(src)
+      throw err
+    })
+  videoBlobInflight.set(src, p)
+  return p
+}
+
+/** Returns a stable blob URL for the given video src; falls back to the direct src on error. */
+function useResolvedVideoSrc(src: string, enabled: boolean): string | undefined {
+  const [resolved, setResolved] = useState<string | undefined>(() =>
+    enabled ? videoBlobCache.get(src) : undefined,
+  )
+  useEffect(() => {
+    if (!enabled) {
+      setResolved(undefined)
+      return
+    }
+    const cached = videoBlobCache.get(src)
+    if (cached) {
+      setResolved(cached)
+      return
+    }
+    let cancelled = false
+    setResolved(undefined)
+    loadVideoAsBlobUrl(src)
+      .then((url) => {
+        if (!cancelled) setResolved(url)
+      })
+      .catch(() => {
+        // Network/permissions failure — fall back to the direct src (worse duration story but at least plays).
+        if (!cancelled) setResolved(src)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [src, enabled])
+  return resolved
+}
+
 const MediaView = forwardRef<
   HTMLImageElement | HTMLVideoElement,
   {
@@ -131,9 +199,15 @@ const MediaView = forwardRef<
     fit: 'cover' | 'contain'
     /** Slider cards: show poster still for video instead of playing */
     variant?: 'full' | 'thumb'
+    /** Loop video playback. Disable on the main stage so `ended` fires and the slide can advance. */
+    loop?: boolean
     onMediaDecoded?: () => void
   }
->(function MediaView({ media, className, fit, variant = 'full', onMediaDecoded }, ref) {
+>(function MediaView({ media, className, fit, variant = 'full', loop = true, onMediaDecoded }, ref) {
+  // Hooks must run unconditionally; only consume the result for full-variant videos.
+  const isFullVideo = media.kind === 'video' && variant === 'full'
+  const blobSrc = useResolvedVideoSrc(media.kind === 'video' ? media.src : '', isFullVideo)
+
   if (USE_COLOR_MEDIA_PLACEHOLDERS) {
     return <div className={className} style={{ background: mediaPlaceholderColor(media) }} aria-hidden />
   }
@@ -152,15 +226,17 @@ const MediaView = forwardRef<
         />
       )
     }
+    // Full video: prefer the blob URL (always knows duration). While it loads, render the
+    // <video> element with `src` omitted so the poster image stands in — no broken-duration flash.
     return (
       <video
         ref={ref as Ref<HTMLVideoElement>}
         className={className}
-        src={media.src}
+        src={blobSrc}
         poster={media.poster}
         muted
         playsInline
-        loop
+        loop={loop}
         autoPlay={variant === 'full'}
         preload={variant === 'thumb' ? 'metadata' : 'auto'}
         controls={false}
@@ -179,6 +255,161 @@ const MediaView = forwardRef<
       style={{ objectFit: fit }}
       onLoad={onMediaDecoded}
     />
+  )
+})
+
+/* ─────────────────────────────────────────────────────────
+ * GALLERY STAGE STORYBOARD
+ *
+ *    0ms   asset prop changes → kick off Image.decode() of the next src
+ *    *ms   decode resolves → atomic swap to new src (already in cache)
+ *          previous frame is mounted as an "outgoing" layer on top
+ *    0ms   outgoing layer begins fading 1 → 0 (GALLERY_FADE_MS)
+ *  140ms   outgoing layer reaches 0 and is unmounted
+ *
+ * Project change (gallery prop changes upstream):
+ *   the entire gallery is preloaded in parallel so subsequent step-throughs
+ *   resolve their decode immediately — the previous frame stays visible the
+ *   whole time, so no background shows through the squircle.
+ *
+ * Videos: bypass the decode wait and swap immediately; the previous image
+ * still crossfades out beneath the loading video (no flash to background).
+ * ───────────────────────────────────────────────────────── */
+const GALLERY_FADE_MS = 140
+
+function mediaIdentity(media: Media): string {
+  return media.kind === 'video' ? `v:${media.src}` : `i:${media.src}`
+}
+
+const GalleryStageLayer = forwardRef<
+  HTMLImageElement | HTMLVideoElement,
+  {
+    media: Media
+    fit: 'cover' | 'contain'
+    className: string
+    loop?: boolean
+    onLoaded?: () => void
+  }
+>(function GalleryStageLayer({ media, fit, className, loop = true, onLoaded }, ref) {
+  if (USE_COLOR_MEDIA_PLACEHOLDERS) {
+    return (
+      <div
+        className={className}
+        style={{ background: mediaPlaceholderColor(media) }}
+        aria-hidden
+      />
+    )
+  }
+
+  if (media.kind === 'video') {
+    return (
+      <video
+        ref={ref as Ref<HTMLVideoElement>}
+        className={className}
+        src={media.src}
+        poster={media.poster}
+        muted
+        playsInline
+        loop={loop}
+        autoPlay
+        preload="auto"
+        controls={false}
+        style={{ objectFit: fit }}
+        onLoadedData={onLoaded}
+      />
+    )
+  }
+
+  return (
+    <img
+      ref={ref as Ref<HTMLImageElement>}
+      className={className}
+      src={media.src}
+      alt={media.alt}
+      draggable={false}
+      decoding="async"
+      style={{ objectFit: fit }}
+      onLoad={onLoaded}
+    />
+  )
+})
+
+const GalleryStage = forwardRef<
+  HTMLImageElement | HTMLVideoElement,
+  {
+    media: Media
+    fit: 'cover' | 'contain'
+    loop?: boolean
+    onMediaDecoded?: () => void
+  }
+>(function GalleryStage({ media, fit, loop = true, onMediaDecoded }, ref) {
+  const [displayed, setDisplayed] = useState<Media>(media)
+  const [outgoing, setOutgoing] = useState<Media | null>(null)
+  const reqIdRef = useRef(0)
+
+  useEffect(() => {
+    if (mediaIdentity(media) === mediaIdentity(displayed)) return
+    const reqId = ++reqIdRef.current
+
+    const swap = () => {
+      if (reqId !== reqIdRef.current) return
+      setOutgoing(displayed)
+      setDisplayed(media)
+    }
+
+    if (media.kind !== 'image') {
+      swap()
+      return
+    }
+
+    const probe = new Image()
+    probe.src = media.src
+    let cancelled = false
+    const finish = () => {
+      if (cancelled) return
+      swap()
+    }
+    if (typeof probe.decode === 'function') {
+      probe.decode().then(finish, finish)
+    } else if (probe.complete) {
+      finish()
+    } else {
+      probe.onload = finish
+      probe.onerror = finish
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [media, displayed])
+
+  useEffect(() => {
+    if (!outgoing) return
+    const id = window.setTimeout(() => setOutgoing(null), GALLERY_FADE_MS + 60)
+    return () => window.clearTimeout(id)
+  }, [outgoing])
+
+  return (
+    <div className="galleryStage">
+      <GalleryStageLayer
+        key={`in-${mediaIdentity(displayed)}`}
+        ref={ref}
+        media={displayed}
+        fit={fit}
+        loop={loop}
+        className="galleryStageLayer galleryStageLayer--in"
+        onLoaded={onMediaDecoded}
+      />
+      {outgoing && mediaIdentity(outgoing) !== mediaIdentity(displayed) && (
+        <GalleryStageLayer
+          key={`out-${mediaIdentity(outgoing)}`}
+          media={outgoing}
+          fit={fit}
+          loop={loop}
+          className="galleryStageLayer galleryStageLayer--out"
+        />
+      )}
+    </div>
   )
 })
 
@@ -488,6 +719,8 @@ export default function PortfolioApp() {
   const [railDotAnimating, setRailDotAnimating] = useState(false)
   const stageWrapRef = useRef<HTMLElement>(null)
   const stageMediaRef = useRef<HTMLImageElement | HTMLVideoElement>(null)
+  /** Active story-meter fill — driven directly via DOM when the asset is a video (synced to currentTime/duration). */
+  const storyFillRef = useRef<HTMLSpanElement | null>(null)
   const [stageChromeTone, setStageChromeTone] = useState<StageChromeTone>('onDark')
   const stageHitRef = useRef<HTMLDivElement>(null)
   const projectInfoPanelRef = useRef<HTMLElement | null>(null)
@@ -1663,25 +1896,82 @@ export default function PortfolioApp() {
     }
   }, [asset, runChromeSample])
 
+  /* Preload every image in the active gallery so step-throughs (manual or auto)
+   * resolve their decode immediately — keeps the previous frame visible during
+   * the swap and prevents background flashes through the squircle. */
   useEffect(() => {
     if (USE_COLOR_MEDIA_PLACEHOLDERS) return
-    const nextAsset = gallery[(assetIndex + 1) % gallery.length]
-    const previousAsset = gallery[(assetIndex - 1 + gallery.length) % gallery.length]
-    const preload = [nextAsset, previousAsset]
-    for (const entry of preload) {
-      if (!entry || entry.kind !== 'image') continue
+    for (const entry of gallery) {
+      if (entry.kind !== 'image') continue
       const image = new Image()
+      image.decoding = 'async'
       image.src = entry.src
     }
-  }, [assetIndex, gallery])
+  }, [gallery])
 
   useEffect(() => {
     if (!canStep) return
-    const timer = window.setTimeout(() => {
+
+    // Image: keep the constant story duration (CSS keyframes drive the fill).
+    if (asset.kind !== 'video') {
+      const timer = window.setTimeout(() => {
+        goNext()
+      }, STORY_DURATION_MS)
+      return () => window.clearTimeout(timer)
+    }
+
+    // Video: drive the meter from the playhead each frame, advance on `ended`.
+    // The video element is fed a blob URL by `useResolvedVideoSrc`, so `duration`
+    // is always finite by the time `loadedmetadata` fires — no probing needed.
+    const el = stageMediaRef.current
+    if (!(el instanceof HTMLVideoElement)) {
+      const timer = window.setTimeout(() => goNext(), STORY_DURATION_MS)
+      return () => window.clearTimeout(timer)
+    }
+    const v = el
+
+    let cancelled = false
+    let advanced = false
+    let raf = 0
+    /** Watchdog so a broken/unfetchable clip can never permanently stall the slide. */
+    const watchdog = window.setTimeout(() => advance(), 60_000)
+
+    const writeFill = (p: number) => {
+      const node = storyFillRef.current
+      if (!node) return
+      const clamped = p < 0 ? 0 : p > 1 ? 1 : p
+      node.style.transform = `scaleX(${clamped})`
+    }
+
+    function advance() {
+      if (advanced || cancelled) return
+      advanced = true
+      writeFill(1)
       goNext()
-    }, STORY_DURATION_MS)
-    return () => window.clearTimeout(timer)
-  }, [assetIndex, canStep, goNext, projectIndex])
+    }
+
+    const tick = () => {
+      if (cancelled) return
+      const d = v.duration
+      if (Number.isFinite(d) && d > 0) {
+        writeFill(v.currentTime / d)
+      }
+      raf = requestAnimationFrame(tick)
+    }
+
+    const onEnded = () => advance()
+    v.addEventListener('ended', onEnded)
+
+    writeFill(0)
+    raf = requestAnimationFrame(tick)
+
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(raf)
+      window.clearTimeout(watchdog)
+      v.removeEventListener('ended', onEnded)
+    }
+  }, [asset, assetIndex, canStep, goNext, projectIndex])
 
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLElement>) => {
     if (isAboutOpen) return
@@ -1930,16 +2220,15 @@ export default function PortfolioApp() {
           <div className="stageMedia">
             {asset && (
               <Squircle
-                key={`${project.id}-${assetIndex}`}
                 cornerRadius={Math.max(0, stageCornerRadius)}
                 cornerSmoothing={stageCornerRadius > 0.5 ? 1 : 0}
                 className="stageMediaSquircle"
               >
-                <MediaView
+                <GalleryStage
                   ref={stageMediaRef}
                   media={asset}
                   fit="cover"
-                  className="stageFill"
+                  loop={!canStep}
                   onMediaDecoded={runChromeSample}
                 />
                 <SquircleMediaStroke
@@ -1949,18 +2238,21 @@ export default function PortfolioApp() {
               </Squircle>
             )}
             <div className="storyMeter" aria-hidden>
-              {gallery.map((_, i) => {
+              {gallery.map((slot, i) => {
                 const done = i < assetIndex
                 const active = i === assetIndex
+                const activeIsVideo = active && slot.kind === 'video'
+                const animateFill = active && !activeIsVideo
                 return (
                   <span
                     key={`${project.id}-story-${i}`}
                     className={`storySegment ${active ? 'storySegment--active' : ''} ${done ? 'storySegment--done' : ''}`}
                   >
                     <span
-                      key={`${project.id}-storyfill-${i}-${active ? assetIndex : 'idle'}`}
-                      className={`storyFill ${done ? 'storyFill--done' : ''} ${active ? 'storyFill--active' : ''}`}
-                      style={active ? { animationDuration: `${STORY_DURATION_MS}ms` } : undefined}
+                      key={`${project.id}-storyfill-${i}-${active ? `${assetIndex}-${slot.kind}` : 'idle'}`}
+                      ref={active ? storyFillRef : null}
+                      className={`storyFill ${done ? 'storyFill--done' : ''} ${animateFill ? 'storyFill--active' : ''}`}
+                      style={animateFill ? { animationDuration: `${STORY_DURATION_MS}ms` } : undefined}
                     />
                   </span>
                 )

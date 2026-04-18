@@ -52,7 +52,8 @@
 /* Fixed bottom bar — pointer-events none so grid scroll isn’t eaten; button re-enables hits */
 .archiveBackDock {
   position: fixed;
-  z-index: 90;
+  /* Above .archivePage (z:80) and any card stacking contexts; below lightbox (z:120) */
+  z-index: 110;
   bottom: 0;
   left: 0;
   right: 0;
@@ -68,13 +69,60 @@
 }
 
 .archiveBack--dock {
+  position: relative;
+  z-index: 1;
   padding: 0.55rem 1.25rem;
+  /* Pill (was 19px — odd against the 14/18/20/999 scale used elsewhere). */
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgb(255, 255, 255);
+  border-style: none;
+  border-width: 0;
+  border-color: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  opacity: 1;
+  font-size: 18px;
+  line-height: 1.2;
+  transform: scale(1);
+  transform-origin: center;
+  /* Reveal uses ease-out-quint to match the cell crossfade curve;
+   * hover keeps the snappier ease-view-inset for tactile feedback. */
+  transition:
+    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Hidden during the enter animation. The button is in DOM (so layout is
+ * stable) but is invisible AND non-interactive — fly clones never appear
+ * "in front of" it because there's nothing to be in front of. */
+.archiveBack--dock--pending {
+  opacity: 0;
+  transform: scale(0.96);
+  pointer-events: none;
+}
+
+/* Override .archivePage .archiveBack color (specificity 0,2,0) with matching specificity */
+.archivePage .archiveBack--dock {
+  color: rgb(0, 0, 0);
+}
+
+/* Hover: slight scale, no opacity change (overrides .archiveBack:hover { opacity: 0.45 }) */
+.archiveBack--dock:hover {
+  opacity: 1;
+  transform: scale(1.06);
+}
+
+.archiveBack--dock:active {
+  transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .archiveBack--dock,
+  .archiveBack--dock:hover {
+    transform: none;
+    transition: none;
+  }
 }
 
 .archiveScroll {
@@ -84,20 +132,21 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  /* Full-bleed under status bar; bottom space for floating back control */
   padding:
-    calc(env(safe-area-inset-top, 0px) + var(--space-5))
-    var(--space-5)
-    calc(env(safe-area-inset-bottom, 0px) + var(--space-6) + 3.25rem + var(--space-5));
+    calc(env(safe-area-inset-top, 0px) + var(--space-6))
+    var(--space-6)
+    calc(env(safe-area-inset-bottom, 0px) + 48px)
+    var(--space-6);
   box-sizing: border-box;
 }
 
 /* Pinterest-style flow: shortest-column packing via CSS columns */
 .archiveMasonry {
   column-count: 2;
-  column-gap: var(--space-4);
-  max-width: 112rem;
-  margin: 0 auto;
+  column-gap: var(--space-6);
+  width: 100%;
+  max-width: none;
+  margin: 0;
 }
 
 @media (min-width: 900px) {
@@ -106,16 +155,10 @@
   }
 }
 
-@media (min-width: 1400px) {
-  .archiveMasonry {
-    column-count: 6;
-  }
-}
-
 .archiveCell {
   display: block;
   width: 100%;
-  margin: 0 0 var(--space-4);
+  margin: 0 0 var(--space-6);
   break-inside: avoid;
   padding: 0;
   border: none;
@@ -123,10 +166,16 @@
   cursor: pointer;
   border-radius: 14px;
   overflow: hidden;
+  opacity: 1;
   box-shadow:
     0 2px 4px rgba(16, 22, 31, 0.06),
     0 12px 24px rgba(16, 22, 31, 0.06);
-  transition: transform 0.2s var(--ease-view-inset), box-shadow 0.2s ease;
+  /* Reveal curve = ease-out-quint, paired with the GSAP clone tail-fade
+   * so cell + clone overlap is always ≥ 1 (no flash). */
+  transition:
+    opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.2s var(--ease-view-inset),
+    box-shadow 0.2s ease;
 }
 
 .archivePage .archiveCell {
@@ -147,6 +196,17 @@
     box-shadow:
       0 6px 14px rgba(0, 0, 0, 0.5),
       0 22px 44px rgba(0, 0, 0, 0.42);
+  }
+}
+
+.archiveCell:active {
+  transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .archiveCell:active,
+  .archiveBack--dock:active {
+    transform: none;
   }
 }
 
@@ -200,8 +260,11 @@
     filter 0.28s var(--ease-view-inset);
 }
 
+/* Real cell hidden during clone flight. Opacity (not visibility) so the
+ * per-cell crossfade triggered by GSAP can transition cleanly. Cell still
+ * occupies layout, so masonry positions are stable while clones fly above. */
 .archiveCell--flyPending {
-  visibility: hidden;
+  opacity: 0;
 }
 
 /* Lightbox (portaled to body — match dark archive chrome) */
@@ -237,8 +300,8 @@
   position: absolute;
   top: var(--space-3);
   right: var(--space-3);
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 2.5rem;
+  height: 2.5rem;
   border: none;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.9);
@@ -248,7 +311,24 @@
   place-items: center;
   font-size: 18px;
   line-height: 1;
-  box-shadow: 0 2px 8px rgba(16, 22, 31, 0.1);
+  /* Two-layer shadow: tight contact + soft halo, tuned for the dark
+   * blurred lightbox scrim so the chip reads as floating above the panel. */
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.35),
+    0 8px 20px rgba(0, 0, 0, 0.45);
+  transition: transform 0.18s var(--ease-view-inset);
+}
+
+.archiveLightboxClose:active {
+  transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .archiveLightboxClose,
+  .archiveLightboxClose:active {
+    transition: none;
+    transform: none;
+  }
 }
 
 .archiveLightboxClose:focus-visible {
@@ -264,6 +344,7 @@
   font-weight: 400;
   color: rgba(255, 255, 255, 0.55);
   background: #0a0a0a;
+  text-wrap: pretty;
 }
 
 /* View Transitions API: black surface during cross-fade (pairs with runWithViewTransition in PortfolioApp). */
@@ -289,8 +370,10 @@
     filter: none;
   }
 
-  .archiveCell {
+  .archiveCell,
+  .archiveCell--flyPending {
     transition: none;
+    opacity: 1;
   }
 
   .archiveCell:hover {
@@ -304,6 +387,11 @@
   .archiveBack--dock {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
+  }
+
+  .archiveBack--dock--pending {
+    opacity: 1;
+    transform: none;
   }
 
   @supports (view-transition-name: none) {
