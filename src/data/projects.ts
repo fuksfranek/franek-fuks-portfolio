@@ -112,12 +112,25 @@ export const projects: Project[] = [
     },
     gallery: [
       { kind: 'image', src: '/images/projects/shadow/gallery/shadow-1.jpg', alt: 'Shadow frame 01' },
-      { kind: 'image', src: '/images/projects/shadow/gallery/shadow-2.jpg', alt: 'Shadow frame 02' },
-      { kind: 'image', src: '/images/projects/shadow/gallery/shadow-3.jpg', alt: 'Shadow frame 03' },
-      { kind: 'image', src: '/images/projects/shadow/gallery/shadow-4.jpg', alt: 'Shadow frame 04' },
-      { kind: 'image', src: '/images/projects/shadow/gallery/shadow-5.jpg', alt: 'Shadow frame 05' },
-      { kind: 'image', src: '/images/projects/shadow/gallery/shadow-6.jpg', alt: 'Shadow frame 06' },
-      { kind: 'image', src: '/images/projects/shadow/gallery/shadow-7.jpg', alt: 'Shadow frame 07' },
+      { kind: 'image', src: '/images/projects/shadow/gallery/shadow-3.jpg', alt: 'Shadow frame 02' },
+      {
+        kind: 'video',
+        src: '/images/projects/shadow/video/shadow-face-video.webm',
+        poster: '/images/projects/shadow/cover/shadow.png?v=2',
+      },
+      { kind: 'image', src: '/images/projects/shadow/gallery/shadow-4.jpg', alt: 'Shadow frame 03' },
+      {
+        kind: 'video',
+        src: '/images/projects/shadow/video/shadow-text-video.webm',
+        poster: '/images/projects/shadow/cover/shadow.png?v=2',
+      },
+      { kind: 'image', src: '/images/projects/shadow/gallery/shadow-5.jpg', alt: 'Shadow frame 04' },
+      {
+        kind: 'video',
+        src: '/images/projects/shadow/video/shadow-full-website-scroll.webm',
+        poster: '/images/projects/shadow/cover/shadow.png?v=2',
+      },
+      { kind: 'image', src: '/images/projects/shadow/gallery/shadow-6.jpg', alt: 'Shadow frame 05' },
     ],
   }),
   gallery({
