@@ -7,7 +7,10 @@ type ArchiveTeaserProps = {
   onNavigate: (cardRects: DOMRect[]) => void
 }
 
-const teaserPreview = archiveItems.slice(0, 3)
+/* The rail stack is 3 small <img> thumbs — videos can't render in <img>, and a
+   12px-tall looping clip wouldn't read anyway. Pick the first 3 image items
+   from whatever the (shuffled) grid order happens to be. */
+const teaserPreview = archiveItems.filter((item) => item.kind !== 'video').slice(0, 3)
 const aboveFoldSrcs = archiveItems.slice(0, 12).map((item) => item.src)
 const restSrcs = archiveItems.slice(12).map((item) => item.src)
 

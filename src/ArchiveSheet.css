@@ -1,22 +1,37 @@
 /* ─────────────────────────────────────────────────────────
- * Archive Sheet — iOS-style bottom drawer (experiment)
+ * Archive Sheet — iOS-style bottom drawer
  *
- * Single source of truth for the drawer's chrome. The masonry grid
- * inside reuses .archiveScroll / .archiveMasonry / .archiveColumn /
- * .archiveCell rules from ArchivePage.css.
+ * Single source of truth for the drawer's chrome. The masonry grid inside
+ * reuses .archiveScroll / .archiveMasonry / .archiveColumn / .archiveCell
+ * rules from ArchivePage.css.
  *
- * ENTER (paired clock — 600ms expo)
- *   0ms  backdrop scrim 0 → 1
- *   0ms  sheet slides translateY(100%) → 0
- *   0ms  shell scales 1 → 0.94 (origin top), corners round to 18px
+ * STORYBOARD
+ *   ENTER  600ms ease-out-expo  panel ↑, scrim 0→1, shell 1→0.94
+ *   EXIT   360ms ease-in-expo   panel ↓, scrim 1→0, shell 0.94→1
  *
- * EXIT (paired clock — 360ms expo-in for snap-home feel)
- *   inverted; ~25% faster than enter (animations.dev rule of thumb)
+ *   HANDLE DRAG     1:1 follow finger; release > 120px or > 0.5px/ms → close.
  *
- * Drag dismiss
- *   pointer down on handle → 1:1 follow finger (no transition)
- *   release > 120px OR > 0.5px/ms → onClose()
- *   release < threshold → 280ms expo snap back to 0
+ *   GESTURE CLOSE   Touch swipe-down at scrollTop=0 (touch only — desktop has
+ *                   the close button / scrim / ESC for dismissal). Drawer
+ *                   follows the finger 1:1 — no resistance, no rubber-band.
+ *                   Release commits when displayed offset > 25% of panel height
+ *                   OR velocity > 0.6 px/ms (fast flick); otherwise 280ms
+ *                   snap-back. Commit doesn't reset to 0 first — it clears the
+ *                   inline transform + peeking class, and the dialog's
+ *                   data-state='closing' rule transitions from the gesture's
+ *                   last rendered position to translateY(100%) over close-ms.
+ *
+ *   SHELL PREVIEW   `--sheet-drag-progress` (0..1) on <html> drives the shell:
+ *                   scale 0.94→0.97, translateY 8→0, saturate 0.78→1, radius
+ *                   14→8. During active drag (`html.sheet-peeking`) transitions
+ *                   are off so the var update reads as 1:1 with the gesture.
+ *                   On snap-back (`html.sheet-snapping`) a 280ms transition
+ *                   interpolates the shell back to its pushed-rest pose.
+ *
+ *   LIGHTBOX        Treats the full viewport as canvas: drawer panel fades
+ *                   back, the scrim deepens to near-opaque, the image FLIPs
+ *                   into a centered viewport rect over 320ms (close 240ms).
+ *                   The close button switches to a dark-canvas pill.
  * ───────────────────────────────────────────────────────── */
 
 :root {
@@ -24,6 +39,7 @@
   --sheet-ease-in-expo: cubic-bezier(0.7, 0, 0.84, 0);
   --sheet-open-ms: 600ms;
   --sheet-close-ms: 360ms;
+  --sheet-snap-ms: 280ms;
   --sheet-radius: 18px;
   --sheet-handle-color: rgba(0, 0, 0, 0.22);
   --sheet-bg: #ffffff;
@@ -33,9 +49,13 @@
   --sheet-gap: var(--space-8);
   /* Gap between the top of the viewport and the top of the drawer panel. */
   --sheet-top-inset: 64px;
+
+  /* Lightbox — full-viewport canvas treatment for the sheet. */
+  --sheet-lightbox-scrim: rgba(0, 0, 0, 0.92);
+  --sheet-lightbox-canvas-ms: 320ms;
 }
 
-/* The native <dialog> reset — we render at fixed inset 0 so we own positioning. */
+/* ───── Native <dialog> reset — we render at fixed inset 0 so we own positioning. */
 .archiveSheet {
   all: unset;
   position: fixed;
@@ -43,8 +63,7 @@
   z-index: 90;
   display: block;
   pointer-events: none;
-  /* Keep the dialog itself transparent — backdrop layer below owns the dim.
-     Color is set on the panel so descendants inherit dark-on-white inside it. */
+  /* Backdrop layer below paints the dim; dialog itself stays transparent. */
   background: transparent;
 }
 
@@ -52,14 +71,17 @@
   pointer-events: auto;
 }
 
-/* Native ::backdrop is unreliable for animation across browsers — paint our own. */
+/* ───── Backdrop scrim ─────
+   Owns the dim under the drawer. Doubles as the lightbox-mode dark canvas
+   (deepens to ~0.92 when data-lightbox='true'). */
 .archiveSheet__scrim {
   position: absolute;
   inset: 0;
   background: var(--sheet-scrim);
   opacity: 0;
-  transition: opacity var(--sheet-open-ms) var(--sheet-ease-out-expo);
-  /* Backdrop catches taps for dismiss; the sheet inner stops propagation. */
+  transition:
+    opacity var(--sheet-open-ms) var(--sheet-ease-out-expo),
+    background-color var(--sheet-lightbox-canvas-ms) var(--sheet-ease-out-expo);
   cursor: pointer;
 }
 
@@ -72,15 +94,15 @@
   transition: opacity var(--sheet-close-ms) var(--sheet-ease-in-expo);
 }
 
-/* The drawer card — slides up from below the viewport. */
+/* ───── The drawer card ───── */
 .archiveSheet__panel {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  /* Top edge sits --sheet-top-inset (64px) below viewport top (plus iOS
-     safe-area inset for status bar / dynamic island). Anchored from the
-     bottom so the slide-up translateY animation stays clean. */
+  /* Top edge sits --sheet-top-inset below viewport top (plus iOS safe-area
+     inset for status bar / dynamic island). Anchored from the bottom so the
+     slide-up translateY animation stays clean. */
   height: calc(100dvh - var(--sheet-top-inset) - env(safe-area-inset-top, 0px));
   width: 100%;
   margin: 0 auto;
@@ -92,7 +114,9 @@
   overflow: hidden;
   box-shadow: 0 -16px 48px rgba(0, 0, 0, 0.18);
   transform: translate3d(0, 100%, 0);
-  transition: transform var(--sheet-open-ms) var(--sheet-ease-out-expo);
+  transition:
+    transform var(--sheet-open-ms) var(--sheet-ease-out-expo),
+    opacity var(--sheet-lightbox-canvas-ms) var(--sheet-ease-out-expo);
   will-change: transform;
 }
 
@@ -111,13 +135,13 @@
   transition: none !important;
 }
 
-/* Snap-back after a sub-threshold release — punchier than the open clock so it
-   reads as a "jump back" rather than a slow drift. */
+/* Snap-back after a sub-threshold release — punchier than the open clock so
+   it reads as a "jump back" rather than a slow drift. */
 .archiveSheet__panel--snapping {
-  transition: transform 280ms var(--sheet-ease-out-expo) !important;
+  transition: transform var(--sheet-snap-ms) var(--sheet-ease-out-expo) !important;
 }
 
-/* Handle — absolute, narrow hit area centered at the top of the panel.
+/* ───── Handle — narrow hit area + centered pill at the top of the panel.
    Out of flow so the scroll container fills the entire panel and cards can
    pass freely under the pill on scroll-up (no header band cutting them off). */
 .archiveSheet__handleArea {
@@ -140,8 +164,6 @@
 
 .archiveSheet__handleArea[data-scrolled='true'] {
   cursor: default;
-  /* Once content has scrolled, drag-to-dismiss yields entirely — pointer events
-     pass through so the area under the pill keeps scrolling naturally. */
   pointer-events: none;
   touch-action: auto;
 }
@@ -155,7 +177,9 @@
   height: 5px;
   border-radius: 999px;
   background: var(--sheet-handle-color);
-  transition: background-color 180ms ease, transform 180ms var(--sheet-ease-out-expo);
+  transition:
+    background-color 180ms ease,
+    transform 180ms var(--sheet-ease-out-expo);
 }
 
 .archiveSheet__handleArea:hover .archiveSheet__handle,
@@ -163,38 +187,45 @@
   background: rgba(0, 0, 0, 0.42);
 }
 
-/* Close button — iOS-style soft gray pill on white surface. */
+/* ───── Close button — frosted pill, SVG xmark, 44px hit area ─────
+   On a white drawer surface the chrome stays whisper-quiet at rest, then
+   firms up on hover. Backdrop-blur keeps it legible if a card scrolls under it. */
 .archiveSheet__close {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: 14px;
+  right: 14px;
   z-index: 3;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: rgba(120, 120, 128, 0.16);
-  color: rgba(60, 60, 67, 0.78);
+  background: rgba(0, 0, 0, 0.045);
+  color: rgba(0, 0, 0, 0.6);
   cursor: pointer;
   display: grid;
   place-items: center;
-  font-family: var(--font-ui);
-  font-size: 20px;
-  font-weight: 500;
-  line-height: 1;
-  box-shadow: none;
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
   transform: scale(1);
   transition:
-    background-color 150ms ease,
-    color 150ms ease,
-    transform 180ms var(--sheet-ease-out-expo);
+    background-color 200ms ease,
+    color 200ms ease,
+    transform 240ms var(--sheet-ease-out-expo);
+}
+
+/* Extend hit area to 44×44 without changing visual size — meets touch
+   minimum without making the visible pill bulky. */
+.archiveSheet__close::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .archiveSheet__close:hover {
-  background: rgba(120, 120, 128, 0.24);
-  color: rgba(60, 60, 67, 0.95);
-  transform: scale(1.04);
+  background: rgba(0, 0, 0, 0.09);
+  color: rgba(0, 0, 0, 0.86);
+  transform: scale(1.06);
 }
 
 .archiveSheet__close:active {
@@ -206,7 +237,12 @@
   outline-offset: 3px;
 }
 
-/* The masonry-host inside the sheet. Reuses .archiveScroll / column rules. */
+.archiveSheet__closeIcon {
+  display: block;
+  pointer-events: none;
+}
+
+/* ───── Content host ───── */
 .archiveSheet__content {
   flex: 1 1 auto;
   min-height: 0;
@@ -215,10 +251,9 @@
 }
 
 /* Override the standalone-page archiveScroll padding so it fits inside a sheet.
-   The scroll container fills the entire panel (handle is absolute / out of flow),
-   so 32px top padding is what gives the first row of cards breathing room from
-   the rounded panel edge. As the user scrolls, cards slide cleanly under the
-   floating handle pill. 32px all sides; bottom adds iOS safe-area inset. */
+   Scroll container fills the panel; handle is absolute / out of flow. 32px
+   top padding gives the first row of cards breathing room from the rounded
+   panel edge — as the user scrolls, cards slide cleanly under the handle pill. */
 .archiveSheet__content .archiveScroll {
   padding:
     var(--sheet-pad)
@@ -236,26 +271,52 @@
   display: none; /* WebKit (Safari, Chrome) */
 }
 
-/* Masonry grid gap inside the sheet — both column-to-column and cell-to-cell. */
 .archiveSheet__content .archiveMasonry,
 .archiveSheet__content .archiveColumn {
   gap: var(--sheet-gap);
 }
 
+/* ───── Cards inside the drawer ─────
+   Sit flat on the white surface — no resting shadow. On hover (mouse only),
+   gently lift with a soft, slow shadow. */
+.archiveSheet__content .archiveCell {
+  box-shadow: none;
+  transition:
+    opacity 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 320ms var(--sheet-ease-out-expo),
+    box-shadow 320ms var(--sheet-ease-out-expo);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .archiveSheet__content .archiveCell:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 1px 2px rgba(16, 22, 31, 0.04),
+      0 12px 28px rgba(16, 22, 31, 0.08);
+  }
+}
+
 /* ───── Shell pushback while sheet is open ─────
-   Visible behind the sheet (unlike the full-overlay variant which fades shell
-   to 0). Subtle scale + saturate, top-anchored so the shell appears to
+   Visible behind the drawer (unlike the full-overlay variant which fades the
+   shell to 0). Subtle scale + saturate, top-anchored so the shell appears to
    recede toward the new card surfacing from below.
 
-   The pushback class stays applied through the close so the shell can
-   transition forward in sync with the sheet slide-down (added by the recovering
-   modifier below). Once both classes are cleared on `onClosed`, the shell is
-   already at identity — no jump. */
+   Drives off `--sheet-drag-progress` (0..1) cascading from <html>:
+     progress 0 → resting pushback (scale 0.94, translateY 8px, saturate 0.78, radius 14)
+     progress 1 → mid-recovery preview (scale 0.97, translateY 0,    saturate 1.0,  radius 6)
+
+   The pushback class stays applied through the close so the shell can transition
+   forward in sync with the sheet slide-down (added by the recovering modifier
+   below). Once both classes are cleared on `onClosed`, the shell is at identity
+   already — no jump. */
 .shell--pushed-by-sheet {
-  transform: translate3d(0, 8px, 0) scale(0.94);
+  --sheet-drag-progress: 0;
+  transform:
+    translate3d(0, calc(8px * (1 - var(--sheet-drag-progress, 0))), 0)
+    scale(calc(0.94 + 0.03 * var(--sheet-drag-progress, 0)));
   transform-origin: 50% 0%;
-  filter: saturate(0.78);
-  border-radius: 14px;
+  filter: saturate(calc(0.78 + 0.22 * var(--sheet-drag-progress, 0)));
+  border-radius: calc(14px - 8px * var(--sheet-drag-progress, 0));
   overflow: hidden;
   pointer-events: none;
   transition:
@@ -276,7 +337,124 @@
     border-radius var(--sheet-close-ms) var(--sheet-ease-in-expo);
 }
 
-/* Reduced motion — replace slide with a fast opacity fade (animations.dev rule). */
+/* During an active overscroll drag — kill the shell's transition so var changes
+   feel 1:1 with the finger / wheel. */
+html.sheet-peeking .shell--pushed-by-sheet {
+  transition: none;
+}
+
+/* On release without dismiss — interpolate the var (and downstream transform/
+   filter/radius) back to 0 over the snap-back clock. */
+html.sheet-snapping .shell--pushed-by-sheet {
+  transition:
+    transform var(--sheet-snap-ms) var(--sheet-ease-out-expo),
+    filter var(--sheet-snap-ms) var(--sheet-ease-out-expo),
+    border-radius var(--sheet-snap-ms) var(--sheet-ease-out-expo);
+}
+
+/* ───── Lightbox — full-viewport canvas ─────
+   When the lightbox opens we promote the whole viewport to canvas: the drawer
+   panel fades back so it doesn't compete, the scrim deepens to near-opaque
+   (so neither the drawer nor the shell behind read through), and the image
+   FLIPs into a centered viewport rect. The close button switches to a dark-
+   canvas pill that reads against any photo.
+
+   On close: data-lightbox flips to 'false' immediately (in the React render
+   that starts the FLIP-back) so panel + scrim transition forward in lockstep
+   with the image, all settling within ~320ms. */
+
+.archiveSheet[data-lightbox='true'] .archiveSheet__scrim {
+  background: var(--sheet-lightbox-scrim);
+  cursor: zoom-out;
+}
+
+.archiveSheet[data-lightbox='true'] .archiveSheet__panel {
+  opacity: 0;
+  transform: translate3d(0, 0, 0) scale(0.96);
+  transform-origin: 50% 50%;
+  pointer-events: none;
+  transition:
+    opacity 200ms var(--sheet-ease-out-expo),
+    transform var(--sheet-lightbox-canvas-ms) var(--sheet-ease-out-expo);
+}
+
+/* Lightbox click-catcher (z above panel, below image) — the scrim already
+   provides the dim, so we keep this transparent and use it only as a tap
+   target that closes the lightbox without closing the sheet. */
+.archiveSheet .archiveLightboxScrim {
+  z-index: 5;
+  background: transparent;
+  cursor: zoom-out;
+}
+
+.archiveSheet .archiveLightboxImage {
+  z-index: 6;
+  border-radius: 14px;
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+/* ───── Lightbox close button — dark-canvas pill ─────
+   Mirrors the in-sheet close button's silhouette but inverted for the dark
+   canvas (white frosted glass + white icon, slightly larger to read at
+   distance over a photo). */
+.archiveSheet .archiveLightboxClose {
+  z-index: 7;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.95);
+  display: grid;
+  place-items: center;
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  box-shadow: none;
+  opacity: 0;
+  transform: scale(0.85);
+  pointer-events: none;
+  transition:
+    opacity var(--sheet-lightbox-canvas-ms) var(--sheet-ease-out-expo),
+    transform var(--sheet-lightbox-canvas-ms) var(--sheet-ease-out-expo),
+    background-color 200ms ease;
+}
+
+.archiveSheet .archiveLightboxClose::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+}
+
+.archiveSheet[data-lightbox='true'] .archiveLightboxClose {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+.archiveSheet .archiveLightboxClose:hover {
+  background: rgba(255, 255, 255, 0.22);
+  transform: scale(1.06);
+}
+
+.archiveSheet .archiveLightboxClose:active {
+  transform: scale(0.94);
+}
+
+.archiveSheet .archiveLightboxClose:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline-offset: 3px;
+}
+
+.archiveLightboxCloseIcon {
+  display: block;
+  pointer-events: none;
+}
+
+/* ───── Reduced motion ─────
+   Replace slide with a fast opacity fade, drop shell pushback transitions,
+   skip the lightbox canvas easing. */
 @media (prefers-reduced-motion: reduce) {
   .archiveSheet__panel,
   .archiveSheet[data-state='open'] .archiveSheet__panel,
@@ -290,6 +468,12 @@
     opacity: 1;
   }
 
+  .archiveSheet[data-lightbox='true'] .archiveSheet__panel {
+    opacity: 0;
+    transform: none;
+    transition: opacity 150ms ease;
+  }
+
   .archiveSheet__scrim,
   .archiveSheet[data-state='open'] .archiveSheet__scrim,
   .archiveSheet[data-state='closing'] .archiveSheet__scrim {
@@ -297,10 +481,18 @@
   }
 
   .shell--pushed-by-sheet,
-  .shell--pushed-by-sheet.shell--sheet-recovering {
+  .shell--pushed-by-sheet.shell--sheet-recovering,
+  html.sheet-peeking .shell--pushed-by-sheet,
+  html.sheet-snapping .shell--pushed-by-sheet {
     transform: none;
     filter: none;
     border-radius: 0;
     transition: none;
+  }
+
+  .archiveSheet .archiveLightboxClose,
+  .archiveSheet[data-lightbox='true'] .archiveLightboxClose {
+    transition: opacity 150ms ease;
+    transform: none;
   }
 }

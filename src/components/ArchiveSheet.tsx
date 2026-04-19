@@ -7,6 +7,8 @@ import {
   useRef,
   useState,
 } from 'react'
+import { Squircle } from '@squircle-js/react'
+import { SquircleMediaStroke } from '../SquircleMediaStroke'
 import type { ArchiveItem } from '../data/archivePlaceholders'
 import { archiveItems } from '../data/archivePlaceholders'
 import type { ArchivePlainRect } from '../lib/archiveGeometry'
@@ -17,6 +19,12 @@ import '../ArchiveSheet.css'
 
 /* Match the JS column-count switch to the @media in ArchivePage.css. */
 const COLUMN_COUNT_MQ = '(min-width: 900px)'
+
+/* Squircle radius for archive cells — matches the existing .archiveCell border-radius
+   (kept on the outer button for hover-shadow shape); the Squircle wrapper applies
+   `cornerSmoothing: 1` so the clipped image reads as a true squircle, consistent with
+   the project thumbs and stage media in PortfolioApp. */
+const ARCHIVE_CELL_RADIUS = 14
 
 type DistributedCell = { item: ArchiveItem; originalIndex: number }
 
@@ -46,46 +54,78 @@ const aboveFoldSrcs = archiveItems.slice(0, ABOVE_FOLD_COUNT).map((item) => item
 const restSrcs = archiveItems.slice(ABOVE_FOLD_COUNT).map((item) => item.src)
 
 /* ─────────────────────────────────────────────────────────
- * ANIMATION STORYBOARD — archive sheet (experiment)
+ * ANIMATION STORYBOARD — archive sheet
  *
  * ENTER (single clock — 600ms ease-out-expo)
- *   0ms  shell scales 1→0.94 (origin top), corners round to 14px
- *   0ms  scrim 0→1
- *   0ms  panel translateY(100%)→0
- *   ~600ms settle (curve front-loads, feels ~200ms)
+ *   0ms   shell scales 1 → 0.94 (origin top), corners round to 14px, saturate 0.78
+ *   0ms   scrim 0 → 1
+ *   0ms   panel translateY(100%) → 0
+ *  ~600ms settle (curve front-loads, feels ~200ms)
  *
  * EXIT (single clock — 360ms ease-in-expo)
  *   ~25% faster than enter (animations.dev convention for snap-home)
  *
- * DRAG-TO-DISMISS
- *   pointer down on handle → 1:1 follow finger (no transition)
- *   release > 120px OR velocity > 0.5px/ms → onRequestClose
- *   release below threshold → snap back to 0 via panel's default transition
+ * HANDLE DRAG (explicit grab on the pill)
+ *   pointer down → 1:1 follow finger (no transition)
+ *   release > 120px OR velocity > 0.5px/ms → dismiss
+ *   release below threshold → 280ms snap back
+ *
+ * GESTURE-CLOSE (touch swipe down at scrollTop=0 — touch only, no wheel)
+ *   iOS-sheet feel: drawer follows the finger 1:1 with no resistance.
+ *   Release decision is direct distance OR velocity:
+ *     displayed > 25% drawer height  → commit
+ *     OR velocity > 0.6 px/ms        → commit (fast flick on short distance)
+ *     else                           → 280ms snap back
+ *   Commit doesn't snap drag-offset to 0 first — it clears the inline
+ *   transform + peeking class, and the dialog's data-state='closing' rule
+ *   takes over, transitioning from the gesture's last rendered position to
+ *   translateY(100%) over close-ms. No jump.
+ *   Gesture progress (displayed / commitDistance, clamped 0..1) is published
+ *   as `--sheet-drag-progress` on <html>, so .shell--pushed-by-sheet previews
+ *   the close in lockstep:
+ *     scale 0.94 → 0.97, translateY 8 → 0, saturate 0.78 → 1, radius 14 → 8.
+ *
+ * LIGHTBOX (FLIP from cell to centered frame)
+ *   Open: image scales from cell rect to centered viewport rect over 320ms.
+ *         Drawer panel + chrome fade out behind a near-black canvas — the
+ *         lightbox treats the whole viewport as its surface, not just the drawer.
+ *   Close: image FLIPs back to cell rect over 240ms; canvas + drawer fade back in.
  * ───────────────────────────────────────────────────────── */
 
 const TIMING = {
   openMs: 600,
   closeMs: 360,
-  /** Sub-threshold release snap-back — must match `.archiveSheet__panel--snapping` in ArchiveSheet.css. */
+  /** Sub-threshold release snap-back — must match `.archiveSheet__panel--snapping`
+      in ArchiveSheet.css and the .sheet-snapping shell rule. */
   snapBackMs: 280,
-  /** Handle drag — explicit grab on a visible affordance, so a relatively low
-      threshold feels right. */
+  /** Handle drag — explicit grab on a visible affordance, low threshold feels right. */
   handleDismissPx: 120,
   handleDismissVelocity: 0.5,
-  /** Overscroll — implicit, gesture-discovered. Much higher bar so it only fires
-      on a deliberate, strong pull/scroll, not on a casual try-to-scroll-past-top. */
-  overscrollDismissPx: 280,
-  overscrollDismissVelocity: 1.2,
-  /** Wheel "release" detection: gap of silence between trackpad events. */
-  wheelEndIdleMs: 140,
-  /** Filters trackpad momentum landing at scrollTop=0 — events within this window
-      after we last left the top are ignored unless an overscroll is already in progress. */
-  wheelMomentumGuardMs: 80,
-  /** Match ArchivePage.css `.archivePage--lightboxOpen` curve so the lightbox+grid pair feels paired. */
+  /** Gesture-close (touch swipe down at scrollTop=0). Touch only — no wheel
+      hijacking on desktop, where scroll-to-close was unintuitive. */
+  overscroll: {
+    /** Visible distance to commit dismiss as a fraction of the panel's height. */
+    dismissDistanceFrac: 0.25,
+    /** Velocity (px/ms) override — fast flick commits even on short distance. */
+    dismissVelocity: 0.6,
+    /** Floor / ceiling for the gesture-close duration (ms). The actual duration
+        is computed from remaining distance + release velocity so the visual
+        speed continues the user's gesture rather than stalling. */
+    closeMinMs: 140,
+    closeMaxMs: 280,
+  },
+  /** Lightbox FLIP timings — paired with .archiveSheet__panel canvas-fade in CSS. */
   lightboxOpenSec: 0.32,
   lightboxOpenEase: 'expo.out',
   lightboxCloseSec: 0.24,
   lightboxCloseEase: 'power2.in',
+} as const
+
+/** Tighter elastic lag for the in-sheet grid — half of the default profile so
+    the masonry feels "alive but composed", not bouncy. */
+const SHEET_GRID_LAG = {
+  baseLagSec: 0.005,
+  lagScaleSec: 0.012,
 } as const
 
 type SheetState = 'opening' | 'open' | 'closing'
@@ -125,7 +165,7 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
   const scrollRef = useRef<HTMLDivElement>(null)
   const cellRefs = useRef<(HTMLButtonElement | null)[]>([])
   const columnRefs = useRef<(HTMLDivElement | null)[]>([])
-  const lightboxImgRef = useRef<HTMLImageElement | null>(null)
+  const lightboxImgRef = useRef<HTMLImageElement | HTMLVideoElement | null>(null)
   const lightboxAnimRef = useRef<gsap.core.Timeline | null>(null)
   const closeTimerRef = useRef<number | null>(null)
 
@@ -197,9 +237,47 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
     }
   }, [])
 
+  /* Single source of truth for "start the close animation". Used both by the
+     parent-driven path (X button, scrim, ESC, navigation) and by the gesture
+     commit path — calling it synchronously from the gesture handler means the
+     panel's data-state flips in the SAME React render that clears the inline
+     drag transform, so the browser interpolates directly from the dragged
+     position to translateY(100%) with no intermediate snap-back.
+
+     `durationMs` lets the gesture path pass a shorter, distance/velocity-aware
+     duration so a swipe-close keeps the user's momentum instead of stretching
+     the remaining travel over the full X-button close clock. */
+  const startCloseAnimation = useCallback(
+    (durationMs?: number) => {
+      if (state === 'closing') return
+      if (reducedMotion) {
+        onClosed()
+        return
+      }
+      const ms = durationMs ?? TIMING.closeMs
+      if (durationMs != null) {
+        /* Override the close clock for this one dismiss. Cascades to the panel
+           (transition uses var(--sheet-close-ms)) and the shell--sheet-recovering
+           rule (same var) so the two stay in lockstep. Cleaned up onClosed. */
+        document.documentElement.style.setProperty('--sheet-close-ms', `${ms}ms`)
+      }
+      setState('closing')
+      closeTimerRef.current = window.setTimeout(() => {
+        const dlg = dialogRef.current
+        if (dlg?.open) dlg.close()
+        if (durationMs != null) {
+          document.documentElement.style.removeProperty('--sheet-close-ms')
+        }
+        onClosed()
+      }, ms)
+    },
+    [state, reducedMotion, onClosed],
+  )
+
   /* ───── React to parent flipping `open` ─────
      - open=true after a close already started → cancel the timer, revert to 'open'
-     - open=false from 'open' → start exit animation, schedule onClosed */
+     - open=false from 'open' → start exit animation, schedule onClosed
+     (No-op if the gesture-commit path already kicked off the close.) */
   useEffect(() => {
     if (open) {
       if (state === 'closing') {
@@ -211,20 +289,8 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
       }
       return
     }
-    if (state === 'closing') return
-
-    if (reducedMotion) {
-      onClosed()
-      return
-    }
-
-    setState('closing')
-    closeTimerRef.current = window.setTimeout(() => {
-      const dlg = dialogRef.current
-      if (dlg?.open) dlg.close()
-      onClosed()
-    }, TIMING.closeMs)
-  }, [open, state, reducedMotion, onClosed])
+    startCloseAnimation()
+  }, [open, state, startCloseAnimation])
 
   useEffect(
     () => () => {
@@ -296,7 +362,7 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
     if (!scrollEl) return
     const cols = columnRefs.current.filter((c): c is HTMLDivElement => c !== null)
     if (cols.length === 0) return
-    const handle = initElasticGridScroll(scrollEl, cols)
+    const handle = initElasticGridScroll(scrollEl, cols, SHEET_GRID_LAG)
     return () => handle.destroy()
   }, [columnCount, reducedMotion])
 
@@ -364,14 +430,37 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
     [dragOffset, releaseDrag],
   )
 
-  /* ───── Overscroll-to-dismiss ─────
-     When the user is at scrollTop=0 and pulls down (touch) or wheel-scrolls up,
-     the panel follows the gesture 1:1. Past distance/velocity threshold the
-     drawer dismisses; otherwise it snaps home via .archiveSheet__panel--snapping.
-     Skipped under reduced motion. */
+  /* ───── Gesture-close (touch swipe down at scrollTop=0) ─────
+     Touch only. Wheel-scroll-to-close on desktop was unintuitive (a casual
+     trackpad scroll past the top would keep dismissing the drawer); desktop
+     users have the close button + scrim + ESC for explicit dismissal.
+
+       1. Drawer follows the finger directly, no damping. The handle drag path
+          uses the same panel inline-transform pipeline (`dragOffset`).
+       2. Gesture progress (displayed / commitDistance, clamped 0..1) is
+          published as `--sheet-drag-progress` on <html>. The shell behind the
+          drawer reads it and previews the close (scale, translate, saturate,
+          radius all interpolate toward identity).
+       3. Release decision is direct: distance > 25% of panel height OR velocity
+          > 0.6 px/ms commits dismiss; otherwise we run a 280ms snap-back.
+       4. On commit we DON'T snap dragOffset to 0 first — clearing the inline
+          transform + peeking class in the same React batch as `onRequestClose`
+          lets the dialog's `data-state='closing'` rule pick up from the
+          gesture's last rendered position and transition to translateY(100%)
+          over close-ms. No jump.
+
+     Skipped under reduced motion (caller doesn't even mount the listeners). */
   useEffect(() => {
     const scrollEl = scrollRef.current
     if (!scrollEl || reducedMotion) return
+
+    const root = document.documentElement
+    const cfg = TIMING.overscroll
+
+    const computeCommitDistance = () => {
+      const h = panelRef.current?.getBoundingClientRect().height
+      return (h && h > 0 ? h : window.innerHeight) * cfg.dismissDistanceFrac
+    }
 
     const s = {
       touchActive: false,
@@ -379,29 +468,77 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
       lastY: 0,
       lastTime: 0,
       velocity: 0,
-      currentOffset: 0,
-      wheelOffset: 0,
-      wheelEndTimer: 0,
-      /** When we last observed scrollTop > 0. Used to filter trackpad momentum
-          that "lands" at scrollTop=0 from triggering an unintended overscroll. */
-      leftTopTime: 0,
+      /** Displayed offset, no damping — fed directly to setProgress. */
+      offset: 0,
+      snappingTimer: 0,
     }
 
-    const flushWheel = () => {
-      if (s.wheelEndTimer) {
-        window.clearTimeout(s.wheelEndTimer)
-        s.wheelEndTimer = 0
-      }
-      if (s.wheelOffset > 0) {
-        const off = s.wheelOffset
-        s.wheelOffset = 0
-        releaseDrag(
-          off,
-          0,
-          TIMING.overscrollDismissPx,
-          TIMING.overscrollDismissVelocity,
+    const setProgress = (displayed: number) => {
+      const commit = computeCommitDistance()
+      const progress = commit > 0 ? Math.min(1, displayed / commit) : 0
+      setDragOffset(displayed)
+      root.style.setProperty('--sheet-drag-progress', String(progress))
+      /* Suppress shell transitions during active drag so the var change is
+         instant (1:1 with finger). Snap-back path re-enables them. */
+      root.classList.add('sheet-peeking')
+      root.classList.remove('sheet-snapping')
+    }
+
+    const startSnapBack = () => {
+      /* Hand off from instant-follow to a 280ms transition before clearing the var
+         so the shell + panel interpolate together. */
+      root.classList.remove('sheet-peeking')
+      root.classList.add('sheet-snapping')
+      setIsSnappingBack(true)
+      setDragOffset(0)
+      root.style.setProperty('--sheet-drag-progress', '0')
+      if (s.snappingTimer) window.clearTimeout(s.snappingTimer)
+      s.snappingTimer = window.setTimeout(() => {
+        s.snappingTimer = 0
+        setIsSnappingBack(false)
+        root.classList.remove('sheet-snapping')
+        root.style.removeProperty('--sheet-drag-progress')
+      }, TIMING.snapBackMs)
+    }
+
+    const evaluateAndRelease = (displayed: number, velocity: number) => {
+      const commit = computeCommitDistance()
+      const dismiss = displayed > commit || velocity > cfg.dismissVelocity
+      if (dismiss) {
+        /* Snappy, single-paint close hand-off — no intermediate snap-back, no
+           shell delay. Everything below lands in the SAME React batch:
+
+             - sheet-peeking off, --sheet-drag-progress dropped (drag is over).
+             - startCloseAnimation(duration) flips local state → 'closing' so
+               the panel's data-state changes in the SAME render that clears
+               the inline drag transform. Browser interpolates from
+               translateY(Ypx) to translateY(100%) over `duration`.
+             - setDragOffset(0) removes the inline transform + --dragging class.
+             - onRequestClose() runs the parent's close handler, which both
+               navigates AND synchronously sets shellSheetState='recovering'.
+               That batches with the local state change → one render with
+               data-state='closing' AND shell--sheet-recovering. Both panel and
+               shell start their close transitions in the same paint.
+
+           Duration is distance + velocity aware: the visual speed continues
+           the user's gesture instead of stalling the remaining travel over
+           the full close clock. Capped to keep barely-committed swipes from
+           being instant and fast flicks from feeling sluggish. */
+        const panelHeight = panelRef.current?.getBoundingClientRect().height ?? window.innerHeight
+        const remaining = Math.max(0, panelHeight - displayed)
+        const speedPxMs = Math.max(velocity, 0.3)
+        const duration = Math.min(
+          cfg.closeMaxMs,
+          Math.max(cfg.closeMinMs, Math.round(remaining / speedPxMs)),
         )
+        root.classList.remove('sheet-peeking', 'sheet-snapping')
+        root.style.removeProperty('--sheet-drag-progress')
+        startCloseAnimation(duration)
+        setDragOffset(0)
+        onRequestClose()
+        return
       }
+      startSnapBack()
     }
 
     const onTouchStart = (e: TouchEvent) => {
@@ -412,6 +549,7 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
       s.lastY = t.clientY
       s.lastTime = performance.now()
       s.velocity = 0
+      s.offset = 0
     }
 
     const onTouchMove = (e: TouchEvent) => {
@@ -421,7 +559,7 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
       if (!s.touchActive) {
         if (scrollEl.scrollTop <= 0 && dy > 0) {
           s.touchActive = true
-          /* Re-anchor so motion is 1:1 from the moment we engage (no jump). */
+          /* Re-anchor so offset starts at 0 from the moment we engage. */
           s.anchorY = t.clientY
           s.lastY = t.clientY
           s.lastTime = performance.now()
@@ -435,77 +573,37 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
       if (dt > 0) s.velocity = (t.clientY - s.lastY) / dt
       s.lastY = t.clientY
       s.lastTime = now
-      const offset = Math.max(0, t.clientY - s.anchorY)
-      s.currentOffset = offset
-      setDragOffset(offset)
+      s.offset = Math.max(0, t.clientY - s.anchorY)
+      setProgress(s.offset)
     }
 
     const onTouchEndOrCancel = () => {
       if (!s.touchActive) return
       s.touchActive = false
-      const offset = s.currentOffset
+      const offset = s.offset
       const velocity = s.velocity
-      s.currentOffset = 0
+      s.offset = 0
       s.velocity = 0
-      releaseDrag(
-        offset,
-        velocity,
-        TIMING.overscrollDismissPx,
-        TIMING.overscrollDismissVelocity,
-      )
-    }
-
-    const onWheel = (e: WheelEvent) => {
-      if (scrollEl.scrollTop > 0) {
-        s.leftTopTime = performance.now()
-        flushWheel()
-        return
-      }
-      if (e.deltaY >= 0) {
-        flushWheel()
-        return
-      }
-      /* Filter trackpad momentum landing at top — ignore upward wheel events
-         in the first ~80ms after we last left the top, unless we're already in
-         an overscroll (then it's a continuous gesture). */
-      if (
-        s.wheelOffset === 0 &&
-        performance.now() - s.leftTopTime < TIMING.wheelMomentumGuardMs
-      ) {
-        return
-      }
-      e.preventDefault()
-      s.wheelOffset = Math.max(0, s.wheelOffset - e.deltaY)
-      setDragOffset(s.wheelOffset)
-      if (s.wheelEndTimer) window.clearTimeout(s.wheelEndTimer)
-      s.wheelEndTimer = window.setTimeout(() => {
-        s.wheelEndTimer = 0
-        const off = s.wheelOffset
-        s.wheelOffset = 0
-        releaseDrag(
-          off,
-          0,
-          TIMING.overscrollDismissPx,
-          TIMING.overscrollDismissVelocity,
-        )
-      }, TIMING.wheelEndIdleMs)
+      evaluateAndRelease(offset, velocity)
     }
 
     scrollEl.addEventListener('touchstart', onTouchStart, { passive: true })
     scrollEl.addEventListener('touchmove', onTouchMove, { passive: false })
     scrollEl.addEventListener('touchend', onTouchEndOrCancel, { passive: true })
     scrollEl.addEventListener('touchcancel', onTouchEndOrCancel, { passive: true })
-    scrollEl.addEventListener('wheel', onWheel, { passive: false })
 
     return () => {
       scrollEl.removeEventListener('touchstart', onTouchStart)
       scrollEl.removeEventListener('touchmove', onTouchMove)
       scrollEl.removeEventListener('touchend', onTouchEndOrCancel)
       scrollEl.removeEventListener('touchcancel', onTouchEndOrCancel)
-      scrollEl.removeEventListener('wheel', onWheel)
-      if (s.wheelEndTimer) window.clearTimeout(s.wheelEndTimer)
+      if (s.snappingTimer) window.clearTimeout(s.snappingTimer)
+      /* Clean state on unmount/remount so a stale .sheet-peeking can't pin the
+         shell at a partially-previewed transform. */
+      root.classList.remove('sheet-peeking', 'sheet-snapping')
+      root.style.removeProperty('--sheet-drag-progress')
     }
-  }, [reducedMotion, releaseDrag])
+  }, [reducedMotion, onRequestClose, startCloseAnimation])
 
   /* ───── Lightbox: FLIP from cell to centered frame, then scale-back on close ───── */
   const openLightbox = useCallback(
@@ -619,7 +717,7 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
   return (
     <dialog
       ref={dialogRef}
-      className={`archiveSheet ${lightbox && !lightboxClosing ? 'archivePage--lightboxOpen' : ''}`}
+      className="archiveSheet"
       data-state={state}
       data-lightbox={dataLightbox}
       aria-label="Archive"
@@ -643,7 +741,19 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
           aria-label="Close archive"
           onClick={onRequestClose}
         >
-          ×
+          <svg
+            className="archiveSheet__closeIcon"
+            viewBox="0 0 16 16"
+            width="14"
+            height="14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <path d="M3.75 3.75 L12.25 12.25 M12.25 3.75 L3.75 12.25" />
+          </svg>
         </button>
         <div className="archiveSheet__content">
           <div className="archiveScroll" ref={scrollRef} onScroll={onContentScroll}>
@@ -668,26 +778,50 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
                       aria-label={`Open archive item ${i + 1}`}
                       onClick={() => openLightbox(item, i)}
                     >
-                      <div
+                      <Squircle
+                        cornerRadius={ARCHIVE_CELL_RADIUS}
+                        cornerSmoothing={1}
                         className="archiveCellInner"
                         style={{ aspectRatio: `${item.aspectW} / ${item.aspectH}` }}
                       >
-                        <img
-                          className="archiveCellImage"
-                          src={item.src}
-                          alt={item.alt}
-                          loading={i < ABOVE_FOLD_COUNT ? 'eager' : 'lazy'}
-                          fetchPriority={i < ABOVE_FOLD_COUNT ? 'high' : 'low'}
-                          decoding="async"
-                          draggable={false}
-                          ref={(node) => {
-                            if (node?.complete && node.naturalHeight > 0) {
-                              node.classList.add('archiveCellImage--ready')
+                        {item.kind === 'video' ? (
+                          <video
+                            className="archiveCellImage archiveCellVideo"
+                            src={item.src}
+                            poster={item.poster}
+                            autoPlay
+                            muted
+                            loop
+                            playsInline
+                            preload="metadata"
+                            disableRemotePlayback
+                            draggable={false}
+                            onLoadedData={(e) =>
+                              e.currentTarget.classList.add('archiveCellImage--ready')
                             }
-                          }}
-                          onLoad={(e) => e.currentTarget.classList.add('archiveCellImage--ready')}
+                          />
+                        ) : (
+                          <img
+                            className="archiveCellImage"
+                            src={item.src}
+                            alt={item.alt}
+                            loading={i < ABOVE_FOLD_COUNT ? 'eager' : 'lazy'}
+                            fetchPriority={i < ABOVE_FOLD_COUNT ? 'high' : 'low'}
+                            decoding="async"
+                            draggable={false}
+                            ref={(node) => {
+                              if (node?.complete && node.naturalHeight > 0) {
+                                node.classList.add('archiveCellImage--ready')
+                              }
+                            }}
+                            onLoad={(e) => e.currentTarget.classList.add('archiveCellImage--ready')}
+                          />
+                        )}
+                        <SquircleMediaStroke
+                          cornerRadius={ARCHIVE_CELL_RADIUS}
+                          cornerSmoothing={1}
                         />
-                      </div>
+                      </Squircle>
                     </button>
                   ))}
                 </div>
@@ -704,29 +838,68 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
             onClick={closeLightbox}
             aria-hidden="true"
           />
-          <img
-            ref={lightboxImgRef}
-            className="archiveLightboxImage"
-            src={lightbox.item.src}
-            alt={lightbox.item.alt}
-            decoding="async"
-            draggable={false}
-            onClick={closeLightbox}
-            style={{
-              position: 'fixed',
-              left: lightbox.toRect.left,
-              top: lightbox.toRect.top,
-              width: lightbox.toRect.width,
-              height: lightbox.toRect.height,
-            }}
-          />
+          {lightbox.item.kind === 'video' ? (
+            <video
+              ref={(node) => {
+                lightboxImgRef.current = node
+              }}
+              className="archiveLightboxImage archiveLightboxVideo"
+              src={lightbox.item.src}
+              poster={lightbox.item.poster}
+              autoPlay
+              muted
+              loop
+              playsInline
+              disableRemotePlayback
+              draggable={false}
+              onClick={closeLightbox}
+              style={{
+                position: 'fixed',
+                left: lightbox.toRect.left,
+                top: lightbox.toRect.top,
+                width: lightbox.toRect.width,
+                height: lightbox.toRect.height,
+              }}
+            />
+          ) : (
+            <img
+              ref={(node) => {
+                lightboxImgRef.current = node
+              }}
+              className="archiveLightboxImage"
+              src={lightbox.item.src}
+              alt={lightbox.item.alt}
+              decoding="async"
+              draggable={false}
+              onClick={closeLightbox}
+              style={{
+                position: 'fixed',
+                left: lightbox.toRect.left,
+                top: lightbox.toRect.top,
+                width: lightbox.toRect.width,
+                height: lightbox.toRect.height,
+              }}
+            />
+          )}
           <button
             type="button"
             className="archiveLightboxClose"
             aria-label="Close preview"
             onClick={closeLightbox}
           >
-            ×
+            <svg
+              className="archiveLightboxCloseIcon"
+              viewBox="0 0 16 16"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M3.75 3.75 L12.25 12.25 M12.25 3.75 L3.75 12.25" />
+            </svg>
           </button>
         </>
       )}

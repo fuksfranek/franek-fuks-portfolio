@@ -1,5 +1,7 @@
 import gsap from 'gsap'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Squircle } from '@squircle-js/react'
+import { SquircleMediaStroke } from '../SquircleMediaStroke'
 import type { ArchiveItem } from '../data/archivePlaceholders'
 import { archiveItems } from '../data/archivePlaceholders'
 import type { ArchivePlainRect } from '../lib/archiveGeometry'
@@ -14,6 +16,11 @@ import '../ArchivePage.css'
    ArchivePage.css and this MQ in sync. JS owns column count because each
    column needs to be a real DOM node for elastic per-column lag. */
 const COLUMN_COUNT_MQ = '(min-width: 900px)'
+
+/* Squircle radius for archive cells — matches `.archiveCell` border-radius (kept
+   on the outer button for shadow shape). `cornerSmoothing: 1` aligns with the
+   project thumbs and stage media in PortfolioApp. */
+const ARCHIVE_CELL_RADIUS = 14
 
 /** Cell + its position in `archiveItems` (cellRefs is indexed by original index). */
 type DistributedCell = { item: ArchiveItem; originalIndex: number }
@@ -149,10 +156,41 @@ function resolveTeaserTriplet(entry: ArchivePlainRect[] | null | undefined): Arc
   return teaserTargetsFromStackBounds(bounds)
 }
 
+/** Build the inner media element for a flying clone. Videos get poster + metadata-only
+    preload so we don't kick off full-byte downloads for a 420ms flight. */
+function buildFlyMedia(item: ArchiveItem): HTMLElement {
+  if (item.kind === 'video') {
+    const v = document.createElement('video')
+    v.src = item.src
+    if (item.poster) v.poster = item.poster
+    v.muted = true
+    v.loop = true
+    v.playsInline = true
+    v.preload = 'metadata'
+    v.setAttribute('disableRemotePlayback', '')
+    v.style.display = 'block'
+    v.style.width = '100%'
+    v.style.height = '100%'
+    v.style.objectFit = 'cover'
+    return v
+  }
+  const img = document.createElement('img')
+  img.src = item.src
+  img.alt = ''
+  img.draggable = false
+  img.decoding = 'async'
+  img.setAttribute('fetchpriority', 'high')
+  img.style.display = 'block'
+  img.style.width = '100%'
+  img.style.height = '100%'
+  img.style.objectFit = 'cover'
+  return img
+}
+
 /** ENTER: clone flies stack→target; calls `onHandoff` mid-flight so the real cell can crossfade in under the tail-fade. */
 function flyCardEnter(
   host: HTMLElement,
-  src: string,
+  item: ArchiveItem,
   from: ArchivePlainRect,
   to: ArchivePlainRect,
   zIndex: number,
@@ -164,17 +202,7 @@ function flyCardEnter(
   el.style.overflow = 'hidden'
   /* Subtle ambient shadow — reads against the fading-in black backdrop without competing with the cell's landed shadow. */
   el.style.boxShadow = '0 6px 18px rgba(0, 0, 0, 0.22)'
-  const img = document.createElement('img')
-  img.src = src
-  img.alt = ''
-  img.draggable = false
-  img.decoding = 'async'
-  img.setAttribute('fetchpriority', 'high')
-  img.style.display = 'block'
-  img.style.width = '100%'
-  img.style.height = '100%'
-  img.style.objectFit = 'cover'
-  el.appendChild(img)
+  el.appendChild(buildFlyMedia(item))
   host.appendChild(el)
 
   const flightSec = TIMING.enterFlightMs / 1000
@@ -237,7 +265,7 @@ function flyCardEnter(
 /** EXIT: FLIP clone gathers from grid back to stack. */
 function flyCardExit(
   host: HTMLElement,
-  src: string,
+  item: ArchiveItem,
   from: ArchivePlainRect,
   to: ArchivePlainRect,
   durationSec: number,
@@ -249,16 +277,7 @@ function flyCardExit(
   el.style.borderRadius = '14px'
   el.style.overflow = 'hidden'
   el.style.boxShadow = '0 12px 28px rgba(16, 22, 31, 0.12)'
-  const img = document.createElement('img')
-  img.src = src
-  img.alt = ''
-  img.draggable = false
-  img.decoding = 'async'
-  img.style.display = 'block'
-  img.style.width = '100%'
-  img.style.height = '100%'
-  img.style.objectFit = 'cover'
-  el.appendChild(img)
+  el.appendChild(buildFlyMedia(item))
   host.appendChild(el)
 
   gsap.set(el, {
@@ -304,7 +323,7 @@ function addEnterFlights(
   const step = TIMING.enterStaggerMs / 1000
   archiveItems.forEach((item, i) => {
     master.add(
-      flyCardEnter(host, item.src, stackOriginRect(i, triplet), targets[i]!, 200 + i, () => {
+      flyCardEnter(host, item, stackOriginRect(i, triplet), targets[i]!, 200 + i, () => {
         const cell = cellRefs[i]
         if (cell) cell.classList.remove('archiveCell--flyPending')
       }),
@@ -324,7 +343,7 @@ function addExitFlights(
   archiveItems.forEach((item, i) => {
     const z = 260 + (TILE_COUNT - 1 - i)
     master.add(
-      flyCardExit(host, item.src, fromRects[i]!, stackOriginRect(i, triplet), flyDurSec, TIMING.exitEase, z),
+      flyCardExit(host, item, fromRects[i]!, stackOriginRect(i, triplet), flyDurSec, TIMING.exitEase, z),
       i * step,
     )
   })
@@ -383,7 +402,7 @@ export function ArchiveOverlay({ entryRects, onClosed, onShellRevealStart }: Arc
   const enterCtxRef = useRef<gsap.Context | null>(null)
   const exitTimelineRef = useRef<gsap.core.Timeline | null>(null)
   const dockRevealTimerRef = useRef<number | null>(null)
-  const lightboxImgRef = useRef<HTMLImageElement | null>(null)
+  const lightboxImgRef = useRef<HTMLImageElement | HTMLVideoElement | null>(null)
   const lightboxAnimRef = useRef<gsap.core.Timeline | null>(null)
 
   /* Reset the column-ref bucket whenever the layout reshapes — React will
@@ -715,29 +734,53 @@ export function ArchiveOverlay({ entryRects, onClosed, onShellRevealStart }: Arc
                     aria-label={`Open archive item ${i + 1}`}
                     onClick={() => openLightbox(item, i)}
                   >
-                    <div
+                    <Squircle
+                      cornerRadius={ARCHIVE_CELL_RADIUS}
+                      cornerSmoothing={1}
                       className="archiveCellInner"
                       style={{
                         aspectRatio: `${item.aspectW} / ${item.aspectH}`,
                       }}
                     >
-                      <img
-                        className="archiveCellImage"
-                        src={item.src}
-                        alt={item.alt}
-                        loading={i < ABOVE_FOLD_COUNT ? 'eager' : 'lazy'}
-                        fetchPriority={i < ABOVE_FOLD_COUNT ? 'high' : 'low'}
-                        decoding="async"
-                        draggable={false}
-                        ref={(node) => {
-                          /* Cached images may already be `complete` before React attaches `onLoad` — flip ready immediately. */
-                          if (node?.complete && node.naturalHeight > 0) {
-                            node.classList.add('archiveCellImage--ready')
+                      {item.kind === 'video' ? (
+                        <video
+                          className="archiveCellImage archiveCellVideo"
+                          src={item.src}
+                          poster={item.poster}
+                          autoPlay
+                          muted
+                          loop
+                          playsInline
+                          preload="metadata"
+                          disableRemotePlayback
+                          draggable={false}
+                          onLoadedData={(e) =>
+                            e.currentTarget.classList.add('archiveCellImage--ready')
                           }
-                        }}
-                        onLoad={(e) => e.currentTarget.classList.add('archiveCellImage--ready')}
+                        />
+                      ) : (
+                        <img
+                          className="archiveCellImage"
+                          src={item.src}
+                          alt={item.alt}
+                          loading={i < ABOVE_FOLD_COUNT ? 'eager' : 'lazy'}
+                          fetchPriority={i < ABOVE_FOLD_COUNT ? 'high' : 'low'}
+                          decoding="async"
+                          draggable={false}
+                          ref={(node) => {
+                            /* Cached images may already be `complete` before React attaches `onLoad` — flip ready immediately. */
+                            if (node?.complete && node.naturalHeight > 0) {
+                              node.classList.add('archiveCellImage--ready')
+                            }
+                          }}
+                          onLoad={(e) => e.currentTarget.classList.add('archiveCellImage--ready')}
+                        />
+                      )}
+                      <SquircleMediaStroke
+                        cornerRadius={ARCHIVE_CELL_RADIUS}
+                        cornerSmoothing={1}
                       />
-                    </div>
+                    </Squircle>
                   </button>
                 ))}
               </div>
@@ -766,22 +809,49 @@ export function ArchiveOverlay({ entryRects, onClosed, onShellRevealStart }: Arc
             onClick={closeLightbox}
             aria-hidden="true"
           />
-          <img
-            ref={lightboxImgRef}
-            className="archiveLightboxImage"
-            src={lightbox.item.src}
-            alt={lightbox.item.alt}
-            decoding="async"
-            draggable={false}
-            onClick={closeLightbox}
-            style={{
-              position: 'fixed',
-              left: lightbox.toRect.left,
-              top: lightbox.toRect.top,
-              width: lightbox.toRect.width,
-              height: lightbox.toRect.height,
-            }}
-          />
+          {lightbox.item.kind === 'video' ? (
+            <video
+              ref={(node) => {
+                lightboxImgRef.current = node
+              }}
+              className="archiveLightboxImage archiveLightboxVideo"
+              src={lightbox.item.src}
+              poster={lightbox.item.poster}
+              autoPlay
+              muted
+              loop
+              playsInline
+              disableRemotePlayback
+              draggable={false}
+              onClick={closeLightbox}
+              style={{
+                position: 'fixed',
+                left: lightbox.toRect.left,
+                top: lightbox.toRect.top,
+                width: lightbox.toRect.width,
+                height: lightbox.toRect.height,
+              }}
+            />
+          ) : (
+            <img
+              ref={(node) => {
+                lightboxImgRef.current = node
+              }}
+              className="archiveLightboxImage"
+              src={lightbox.item.src}
+              alt={lightbox.item.alt}
+              decoding="async"
+              draggable={false}
+              onClick={closeLightbox}
+              style={{
+                position: 'fixed',
+                left: lightbox.toRect.left,
+                top: lightbox.toRect.top,
+                width: lightbox.toRect.width,
+                height: lightbox.toRect.height,
+              }}
+            />
+          )}
           <button
             type="button"
             className="archiveLightboxClose"

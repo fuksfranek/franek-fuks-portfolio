@@ -260,28 +260,79 @@ const MediaView = forwardRef<
 })
 
 /* ─────────────────────────────────────────────────────────
- * GALLERY STAGE — dual-layer crossfade
+ * GALLERY STAGE — persistent dual-buffer crossfade
  *
- * On asset change: Image.decode() the next src, then swap. The previous frame
- * is mounted as an "outgoing" layer on top and fades 1→0 over GALLERY_FADE_MS.
- * Video swaps immediately (no decode wait); image underneath still crossfades.
+ * Two slots (A/B) are always mounted. The "front" slot is opaque + on top;
+ * the "back" slot is invisible (opacity: 0) but in the DOM, so we can write
+ * the next asset's src into it and let the browser load + decode + lay it
+ * out invisibly. Once the back slot is fully ready (Image.decode() for
+ * stills, `loadeddata` for videos), we swap which slot is front; CSS
+ * crossfades both opacities in lockstep over GALLERY_FADE_MS.
+ *
+ * Because the IMG/VIDEO elements never unmount, there is no fresh-element
+ * paint gap between the asset being chosen and the new pixels being on
+ * screen — the user never sees the squircle background through a
+ * transparent layer.
+ *
+ * Crossfade duration lives in App.css on `.galleryStageLayer` (currently
+ * 320ms ease-out); JS doesn't need to know it because both slots transition
+ * via CSS in lockstep.
  * ───────────────────────────────────────────────────────── */
-const GALLERY_FADE_MS = 140
 
 function mediaIdentity(media: Media): string {
   return media.kind === 'video' ? `v:${media.src}` : `i:${media.src}`
 }
 
-const GalleryStageLayer = forwardRef<
-  HTMLImageElement | HTMLVideoElement,
+type SlotId = 'A' | 'B'
+
+const GalleryStageSlot = forwardRef<
+  HTMLImageElement | HTMLVideoElement | null,
   {
-    media: Media
+    media: Media | null
     fit: 'cover' | 'contain'
-    className: string
-    loop?: boolean
-    onLoaded?: () => void
+    loop: boolean
+    isFront: boolean
+    onReady: () => void
   }
->(function GalleryStageLayer({ media, fit, className, loop = true, onLoaded }, ref) {
+>(function GalleryStageSlot({ media, fit, loop, isFront, onReady }, ref) {
+  /* Hook order is stable; arg is the empty string when not a video, which the
+     hook treats as "disabled" via the `enabled` flag. */
+  const isVideo = media?.kind === 'video'
+  const blobSrc = useResolvedVideoSrc(
+    isVideo ? (media as Extract<Media, { kind: 'video' }>).src : '',
+    Boolean(isVideo),
+  )
+
+  const elRef = useRef<HTMLImageElement | HTMLVideoElement | null>(null)
+  const setRefs = useCallback(
+    (node: HTMLImageElement | HTMLVideoElement | null) => {
+      elRef.current = node
+      if (typeof ref === 'function') ref(node)
+      else if (ref) (ref as React.MutableRefObject<typeof node>).current = node
+    },
+    [ref],
+  )
+
+  /* Front video plays from the start; back video pauses to spare CPU/bandwidth. */
+  useEffect(() => {
+    const el = elRef.current
+    if (!(el instanceof HTMLVideoElement)) return
+    if (isFront) {
+      try {
+        el.currentTime = 0
+      } catch {
+        /* readyState too low; will start at 0 anyway when metadata loads */
+      }
+      el.play().catch(() => {})
+    } else {
+      el.pause()
+    }
+  }, [isFront, media])
+
+  if (!media) return null
+
+  const className = `galleryStageLayer galleryStageLayer--${isFront ? 'front' : 'back'}`
+
   if (USE_COLOR_MEDIA_PLACEHOLDERS) {
     return (
       <div
@@ -295,114 +346,152 @@ const GalleryStageLayer = forwardRef<
   if (media.kind === 'video') {
     return (
       <video
-        ref={ref as Ref<HTMLVideoElement>}
+        ref={setRefs as Ref<HTMLVideoElement>}
         className={className}
-        src={media.src}
+        src={blobSrc}
         poster={media.poster}
         muted
         playsInline
         loop={loop}
-        autoPlay
+        autoPlay={isFront}
         preload="auto"
         controls={false}
         style={{ objectFit: fit }}
-        onLoadedData={onLoaded}
+        onLoadedData={onReady}
       />
     )
   }
 
   return (
     <img
-      ref={ref as Ref<HTMLImageElement>}
+      ref={setRefs as Ref<HTMLImageElement>}
       className={className}
       src={media.src}
       alt={media.alt}
       draggable={false}
       decoding="async"
       style={{ objectFit: fit }}
-      onLoad={onLoaded}
+      onLoad={onReady}
     />
   )
 })
 
-const GalleryStage = forwardRef<
-  HTMLImageElement | HTMLVideoElement,
-  {
-    media: Media
-    fit: 'cover' | 'contain'
-    loop?: boolean
-    onMediaDecoded?: () => void
-  }
->(function GalleryStage({ media, fit, loop = true, onMediaDecoded }, ref) {
-  const [displayed, setDisplayed] = useState<Media>(media)
-  const [outgoing, setOutgoing] = useState<Media | null>(null)
+const GalleryStage = function GalleryStage({
+  media,
+  fit,
+  loop = true,
+  onActiveElement,
+  onMediaDecoded,
+}: {
+  media: Media
+  fit: 'cover' | 'contain'
+  loop?: boolean
+  onActiveElement?: (el: HTMLImageElement | HTMLVideoElement | null) => void
+  onMediaDecoded?: () => void
+}) {
+  const [slotA, setSlotA] = useState<Media | null>(media)
+  const [slotB, setSlotB] = useState<Media | null>(null)
+  const [front, setFront] = useState<SlotId>('A')
+
+  const slotAElRef = useRef<HTMLImageElement | HTMLVideoElement | null>(null)
+  const slotBElRef = useRef<HTMLImageElement | HTMLVideoElement | null>(null)
   const reqIdRef = useRef(0)
+  const promotedReqIdRef = useRef(0)
+
+  /* Notify parent whenever the front element changes. Parent uses this to
+     re-run video-meter / chrome-sampling against the actually-on-screen
+     element. The parent guards against no-op updates so re-fires from other
+     state changes are cheap. */
+  useLayoutEffect(() => {
+    const node = front === 'A' ? slotAElRef.current : slotBElRef.current
+    onActiveElement?.(node)
+  }, [front, slotA, slotB, onActiveElement])
 
   useEffect(() => {
-    if (mediaIdentity(media) === mediaIdentity(displayed)) return
+    const currentMedia = front === 'A' ? slotA : slotB
+    if (currentMedia && mediaIdentity(currentMedia) === mediaIdentity(media)) return
+
+    /* If we've already queued this exact media into the back slot, the
+       pending decode/load callback will promote it — don't restart the load. */
+    const targetMedia = front === 'A' ? slotB : slotA
+    if (targetMedia && mediaIdentity(targetMedia) === mediaIdentity(media)) return
+
     const reqId = ++reqIdRef.current
+    const target: SlotId = front === 'A' ? 'B' : 'A'
 
-    const swap = () => {
-      if (reqId !== reqIdRef.current) return
-      setOutgoing(displayed)
-      setDisplayed(media)
-    }
+    if (target === 'A') setSlotA(media)
+    else setSlotB(media)
 
-    if (media.kind !== 'image') {
-      swap()
-      return
+    /* Videos promote when the slot's <video> fires `loadeddata`
+       (handleSlotReady). Stills are pre-decoded off-DOM so the in-DOM
+       element paints immediately when its opacity rises. */
+    if (media.kind !== 'image') return
+
+    let cancelled = false
+    const promote = () => {
+      if (cancelled || reqId !== reqIdRef.current) return
+      if (promotedReqIdRef.current >= reqId) return
+      promotedReqIdRef.current = reqId
+      setFront(target)
+      onMediaDecoded?.()
     }
 
     const probe = new Image()
     probe.src = media.src
-    let cancelled = false
-    const finish = () => {
-      if (cancelled) return
-      swap()
-    }
     if (typeof probe.decode === 'function') {
-      probe.decode().then(finish, finish)
+      probe.decode().then(promote, promote)
     } else if (probe.complete) {
-      finish()
+      promote()
     } else {
-      probe.onload = finish
-      probe.onerror = finish
+      probe.onload = promote
+      probe.onerror = promote
     }
 
     return () => {
       cancelled = true
     }
-  }, [media, displayed])
+  }, [media, front, slotA, slotB, onMediaDecoded])
 
-  useEffect(() => {
-    if (!outgoing) return
-    const id = window.setTimeout(() => setOutgoing(null), GALLERY_FADE_MS + 60)
-    return () => window.clearTimeout(id)
-  }, [outgoing])
+  const handleSlotReady = useCallback(
+    (slotId: SlotId) => {
+      const slotMedia = slotId === 'A' ? slotA : slotB
+      if (!slotMedia || mediaIdentity(slotMedia) !== mediaIdentity(media)) return
+      /* Initial mount path (already front): just signal the parent so the
+         first chrome sample / autoplay can fire. */
+      if (front === slotId) {
+        onMediaDecoded?.()
+        return
+      }
+      const reqId = reqIdRef.current
+      if (promotedReqIdRef.current >= reqId) return
+      promotedReqIdRef.current = reqId
+      setFront(slotId)
+      onMediaDecoded?.()
+    },
+    [front, slotA, slotB, media, onMediaDecoded],
+  )
 
   return (
     <div className="galleryStage">
-      <GalleryStageLayer
-        key={`in-${mediaIdentity(displayed)}`}
-        ref={ref}
-        media={displayed}
+      <GalleryStageSlot
+        ref={slotAElRef}
+        media={slotA}
         fit={fit}
         loop={loop}
-        className="galleryStageLayer galleryStageLayer--in"
-        onLoaded={onMediaDecoded}
+        isFront={front === 'A'}
+        onReady={() => handleSlotReady('A')}
       />
-      {outgoing && mediaIdentity(outgoing) !== mediaIdentity(displayed) && (
-        <GalleryStageLayer
-          key={`out-${mediaIdentity(outgoing)}`}
-          media={outgoing}
-          fit={fit}
-          loop={loop}
-          className="galleryStageLayer galleryStageLayer--out"
-        />
-      )}
+      <GalleryStageSlot
+        ref={slotBElRef}
+        media={slotB}
+        fit={fit}
+        loop={loop}
+        isFront={front === 'B'}
+        onReady={() => handleSlotReady('B')}
+      />
     </div>
   )
-})
+}
 
 const SWIPE_STEP = 42
 /** prefers-reduced-motion: coarser wheel threshold before info open/close */
@@ -683,7 +772,12 @@ export default function PortfolioApp() {
   /** When true, WAAPI owns transform — don't apply React inline translate */
   const [railDotAnimating, setRailDotAnimating] = useState(false)
   const stageWrapRef = useRef<HTMLElement>(null)
-  const stageMediaRef = useRef<HTMLImageElement | HTMLVideoElement>(null)
+  /** Mirrors `GalleryStage`'s currently-on-screen element. Updated via the
+      `onActiveElement` callback whenever the front slot promotes; the bumped
+      `stageMediaTick` re-runs effects that need to attach listeners or rAF
+      callbacks against the new element (chrome sampling, video story meter). */
+  const stageMediaRef = useRef<HTMLImageElement | HTMLVideoElement | null>(null)
+  const [stageMediaTick, setStageMediaTick] = useState(0)
   /** Active story-meter fill — written via DOM when the asset is a video (synced to currentTime/duration). */
   const storyFillRef = useRef<HTMLSpanElement | null>(null)
   const [stageChromeTone, setStageChromeTone] = useState<StageChromeTone>('onDark')
@@ -780,6 +874,12 @@ export default function PortfolioApp() {
   }, [archiveOpen, shellSheetState])
 
   const handleSheetRequestClose = useCallback(() => {
+    /* Flip shell into recovery in the SAME React batch as navigate. The
+       lifecycle useEffect would do this one render later (after archiveOpen
+       propagates), and on the gesture-close path that one-render lag is the
+       difference between the shell starting its close transition with the
+       panel vs. crawling back to its pushback resting pose first. */
+    setShellSheetState((prev) => (prev === 'pushed' ? 'recovering' : prev))
     navigate({ pathname: '/', hash: '' }, { replace: true })
   }, [navigate])
 
@@ -802,6 +902,16 @@ export default function PortfolioApp() {
       setStageChromeTone((prev) => (prev === next ? prev : next))
     }
   }, [])
+
+  const handleActiveStageMedia = useCallback(
+    (el: HTMLImageElement | HTMLVideoElement | null) => {
+      if (stageMediaRef.current === el) return
+      stageMediaRef.current = el
+      /* Bump tick so dependent effects re-run against the freshly-promoted element. */
+      setStageMediaTick((t) => t + 1)
+    },
+    [],
+  )
 
   const goPrev = useCallback(() => {
     dispatch({ type: 'prevAsset' })
@@ -1738,16 +1848,21 @@ export default function PortfolioApp() {
       cancelled = true
       el.removeEventListener('timeupdate', onTime)
     }
-  }, [asset, runChromeSample])
+  }, [asset, runChromeSample, stageMediaTick])
 
-  /* Preload the whole gallery so step-through swaps resolve their decode immediately. */
+  /* Preload the whole gallery so step-through swaps are seamless: decoded
+     bytes for stills, blob-URL'd buffers for videos (so duration is finite
+     and playback starts immediately when reached). */
   useEffect(() => {
     if (USE_COLOR_MEDIA_PLACEHOLDERS) return
     for (const entry of gallery) {
-      if (entry.kind !== 'image') continue
-      const image = new Image()
-      image.decoding = 'async'
-      image.src = entry.src
+      if (entry.kind === 'image') {
+        const image = new Image()
+        image.decoding = 'async'
+        image.src = entry.src
+      } else {
+        void loadVideoAsBlobUrl(entry.src).catch(() => {})
+      }
     }
   }, [gallery])
 
@@ -1760,16 +1875,20 @@ export default function PortfolioApp() {
       return () => window.clearTimeout(timer)
     }
 
-    /* Video: drive the meter from the playhead, advance on `ended`.
-     * `useResolvedVideoSrc` feeds a blob URL, so `duration` is finite. */
+    /* Video: pill duration matches the video's actual length. The slot
+       resolves to a blob URL so `duration` is finite even for headerless
+       WebMs; we drive the fill scaleX from `currentTime/duration` per frame
+       and advance on `ended`. */
     const v = stageMediaRef.current
     if (!(v instanceof HTMLVideoElement)) {
-      const timer = window.setTimeout(() => goNext(), STORY_DURATION_MS)
-      return () => window.clearTimeout(timer)
+      /* Element not yet promoted (still loading the blob). When the front
+         slot does promote, `stageMediaTick` bumps and this effect re-runs. */
+      return
     }
 
     let cancelled = false
     let raf = 0
+    let safetyTimer = 0
 
     const writeFill = (p: number) => {
       const node = storyFillRef.current
@@ -1793,15 +1912,22 @@ export default function PortfolioApp() {
     }
     v.addEventListener('ended', onEnded)
 
+    /* Safety net: if the file is broken or stalls before metadata loads,
+       advance on a generous fallback so the carousel can't soft-lock. */
+    safetyTimer = window.setTimeout(() => {
+      if (!cancelled) goNext()
+    }, 30_000)
+
     writeFill(0)
     raf = requestAnimationFrame(tick)
 
     return () => {
       cancelled = true
       cancelAnimationFrame(raf)
+      window.clearTimeout(safetyTimer)
       v.removeEventListener('ended', onEnded)
     }
-  }, [asset, assetIndex, canStep, goNext, projectIndex])
+  }, [asset, assetIndex, canStep, goNext, projectIndex, stageMediaTick])
 
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLElement>) => {
     if (isAboutOpen) return
@@ -2062,10 +2188,10 @@ export default function PortfolioApp() {
                 className="stageMediaSquircle"
               >
                 <GalleryStage
-                  ref={stageMediaRef}
                   media={asset}
                   fit="cover"
                   loop={!canStep}
+                  onActiveElement={handleActiveStageMedia}
                   onMediaDecoded={runChromeSample}
                 />
                 <SquircleMediaStroke

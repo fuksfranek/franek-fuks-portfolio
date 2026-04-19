@@ -267,6 +267,11 @@
   width: 100%;
   border-radius: inherit;
   overflow: hidden;
+  /* Hairline border around the squircle clip — same SquircleMediaStroke component
+     as project covers, but archive cells live on light surfaces (sheet/overlay
+     are white), so we override the default white-on-dark stroke with a subtle
+     dark hairline. */
+  --media-frame-border: rgba(0, 0, 0, 0.08);
 }
 
 .archiveCellImage {
@@ -275,6 +280,9 @@
   height: 100%;
   object-fit: cover;
   border-radius: inherit;
+  /* Cover squircle anti-alias gaps — see --squircle-media-overscan token. */
+  transform: scale(var(--squircle-media-overscan));
+  transform-origin: center center;
   -webkit-user-drag: none;
   /* Hidden until decode lands — graceful fade in instead of a hard pop when bytes arrive late. */
   opacity: 0;
@@ -283,6 +291,21 @@
 
 .archiveCellImage--ready {
   opacity: 1;
+}
+
+/* Cell videos behave like images for layout, but never eat the cell-button click —
+   onClick on the parent button drives the lightbox. Also kill the iOS QuickLook
+   long-press menu and double-tap-to-fullscreen. */
+.archiveCellVideo {
+  pointer-events: none;
+  -webkit-touch-callout: none;
+}
+
+/* Lightbox video keeps native controls; same shadow/border as the image variant
+   inherits from .archiveLightboxImage. Black background fills the rounded corners
+   while the first frame loads. */
+.archiveLightboxVideo {
+  background: #000;
 }
 
 /* No default opacity/filter transition: after FLIP handoff, stray recomputes were easing ~0.5s (cards looked like they faded). Transitions only when using the modifiers below. */
