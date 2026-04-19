@@ -159,6 +159,18 @@ export const projects: Project[] = [
       src: '/images/projects/osom-pictures/cover/pictures.png',
       alt: 'OSOM Pictures cover',
     },
+    gallery: [
+      {
+        kind: 'video',
+        src: '/images/projects/osom-pictures/video/osom-pictures-video1.mp4',
+        poster: '/images/projects/osom-pictures/cover/pictures.png',
+      },
+      { kind: 'image', src: '/images/projects/osom-pictures/gallery/osom-pictures-asset1.webp', alt: 'OSOM Pictures asset 01' },
+      { kind: 'image', src: '/images/projects/osom-pictures/gallery/osom-pictures-asset2.webp', alt: 'OSOM Pictures asset 02' },
+      { kind: 'image', src: '/images/projects/osom-pictures/gallery/osom-pictures-asset3.webp', alt: 'OSOM Pictures asset 03' },
+      { kind: 'image', src: '/images/projects/osom-pictures/gallery/osom-pictures-asset4.webp', alt: 'OSOM Pictures asset 04' },
+      { kind: 'image', src: '/images/projects/osom-pictures/gallery/osom-pictures-asset5.webp', alt: 'OSOM Pictures asset 05' },
+    ],
   }),
   gallery({
     id: 'piesni-wspolczesne-tom-ii',

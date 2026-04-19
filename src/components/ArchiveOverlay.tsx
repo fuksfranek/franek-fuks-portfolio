@@ -1,81 +1,122 @@
 import gsap from 'gsap'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { ArchiveItem } from '../data/archivePlaceholders'
 import { archiveItems } from '../data/archivePlaceholders'
 import type { ArchivePlainRect } from '../lib/archiveGeometry'
 import { stackOriginRect, teaserTargetsFromStackBounds } from '../lib/archiveGeometry'
+import { preloadArchiveImages } from '../lib/archivePreload'
 import { readArchiveTeaserBoundsFromSession } from '../lib/archiveTeaserBounds'
 import { easeViewInset } from '../lib/easeViewInset'
+import { initElasticGridScroll } from '../lib/elasticGridScroll'
 import '../ArchivePage.css'
 
+/* Single source of truth for the masonry breakpoint — keep CSS @media in
+   ArchivePage.css and this MQ in sync. JS owns column count because each
+   column needs to be a real DOM node for elastic per-column lag. */
+const COLUMN_COUNT_MQ = '(min-width: 900px)'
+
+/** Cell + its position in `archiveItems` (cellRefs is indexed by original index). */
+type DistributedCell = { item: ArchiveItem; originalIndex: number }
+
+/** Pinterest-style shortest-column packing using known aspect ratios.
+ *  Cells flow in order; each one lands in the currently shortest column. */
+function distributeIntoColumns(
+  items: readonly ArchiveItem[],
+  columnCount: number,
+): DistributedCell[][] {
+  type Bucket = { cells: DistributedCell[]; heightUnits: number }
+  const buckets: Bucket[] = Array.from({ length: columnCount }, () => ({
+    cells: [],
+    heightUnits: 0,
+  }))
+  items.forEach((item, originalIndex) => {
+    let target = buckets[0]!
+    for (let i = 1; i < buckets.length; i += 1) {
+      if (buckets[i]!.heightUnits < target.heightUnits) target = buckets[i]!
+    }
+    target.cells.push({ item, originalIndex })
+    /* Height contribution per unit of column width — drives the packing decision. */
+    target.heightUnits += item.aspectH / item.aspectW
+  })
+  return buckets.map((b) => b.cells)
+}
+
 const TILE_COUNT = archiveItems.length
+/** Cells likely visible above the fold on most viewports — get eager loading + high fetch priority. */
+const ABOVE_FOLD_COUNT = 12
+const aboveFoldSrcs = archiveItems.slice(0, ABOVE_FOLD_COUNT).map((item) => item.src)
+const restSrcs = archiveItems.slice(ABOVE_FOLD_COUNT).map((item) => item.src)
 
 /* ─────────────────────────────────────────────────────────
  * ANIMATION STORYBOARD — archive overlay (hash #archive)
  *
- * Read top-to-bottom. ms are wall-clock from the trigger.
- *
- * ENTER (stack → masonry)
- *    0ms   25 fly clones spawn at the teaser stack origin
- *          (opacity 0.55, scaled to teaser thumbnail size).
- *          Real cells render with opacity 0 at their final masonry
- *          positions (layout already settled — no reflow during flight).
- *
- *    0ms   Per-clone flight to target starts (stagger 6ms — tight enough
- *          that the wave reads as one unified gesture, not column-by-column):
- *          • 0–140 ms : clone fades 0.55 → 1   (masks the spawn pop)
- *          • 0–620 ms : translate + scale, easeOutQuint (soft tail)
- *          • at 55%  : matching real cell crossfade-in begins
- *                      (CSS opacity 0→1, 280 ms ease-out-quint)
- *          • last 200ms : clone tail-fades 1 → 0 (power2.in)
- *          → cell + clone overlap ≥ 1 for the whole handoff window;
- *            no empty frame, no shadow pop.
- *
- *  764ms   Last clone lands → master onComplete reconciles
- *          flyPending=false (no-op if all per-cell handoffs ran)
- *          and removes the fly host. dockReady flips → back button
- *          fades + scales in over 220ms (it was hidden the whole time
- *          so the flying clones never appeared "in front of" it).
+ * ENTER — everything starts at frame 1, runs concurrently
+ *   0ms    portfolio shell fades 1→0 (240ms ease-out-expo, App.css)
+ *   0ms    overlay backdrop fades 0→1 (320ms ease-out-expo) — the "smooth black"
+ *   0ms    25 FLIP clones fly stack→grid, stagger 4ms, per-clone:
+ *            translate+scale enterFlightMs on easeOutExpo (spring-like snap),
+ *            handoff to real cell at enterCellRevealAtFraction,
+ *            clone tail-fades to 0 in enterCloneFadeOutMs.
+ *   180ms  back dock fades+scales in (220ms ease-out-expo) — escape long before settle
+ *   ~516ms last tile lands
  *
  * EXIT (Back — one shared clock)
- *    0ms   shell--archive-revealing + --archive-shell-reveal-ms = EXIT_TOTAL_MS
- *          (CSS --ease-view-inset on shell opacity/blur)
- *    0ms   overlay opacity 1 → 0 over EXIT_TOTAL_MS (easeViewInset)
- *    0ms   25 FLIP clones grid → stack: stagger EXIT_STAGGER_MS,
- *          per-tile duration fills EXIT_TOTAL_MS (power2.inOut —
- *          gentler on-screen travel than power3.in)
- *  EXIT_TOTAL_MS   unmount + clear hash
+ *   0ms    shell--archive-revealing → shell opacity 0→1 over exitTotalMs
+ *   0ms    overlay opacity 1→0 over exitTotalMs (paired curve with shell)
+ *   0ms    25 FLIP clones grid→stack, stagger 3ms, power2.in (snap home)
+ *   exitTotalMs  unmount + clear hash
  * ───────────────────────────────────────────────────────── */
 
-/**
- * Soft ease-out, equivalent to cubic-bezier(0.22, 1, 0.36, 1).
- * Heavily weighted long tail — element decelerates over a longer
- * window than ease-out-cubic, masking the precise landing moment.
- */
-function easeOutQuint(t: number): number {
+/** Equivalent to cubic-bezier(0.16, 1, 0.3, 1) — spring-like snap, long settle. */
+function easeOutExpo(t: number): number {
   if (t <= 0) return 0
   if (t >= 1) return 1
-  return 1 - Math.pow(1 - t, 5)
+  return 1 - Math.pow(2, -10 * t)
 }
 
 const TIMING = {
-  /* ENTER (per-tile clock) */
-  enterFlightMs: 620,
-  enterStaggerMs: 6,
-  enterCloneFadeInMs: 140,
-  enterCloneFadeOutMs: 200,
-  enterCellRevealAtFraction: 0.55, // hand off to real cell at this point of each clone's flight
-  enterCloneInitialOpacity: 0.55,
-  enterEase: easeOutQuint,
-
-  /* EXIT (single shared budget) */
-  exitTotalMs: 360,
-  exitStaggerMs: 5,
-  exitEase: 'power2.inOut',
+  enterFlightMs: 420,
+  enterStaggerMs: 4,
+  enterCloneFadeOutMs: 140,
+  /** Hand off to the real cell at this point of each clone's flight (cell+clone overlap ≥ 1). */
+  enterCellRevealAtFraction: 0.5,
+  enterEase: easeOutExpo,
+  /** Backdrop CSS transition (ArchivePage.css `.archiveOverlay--enterReady`). */
+  enterBackdropMs: 320,
+  /** Dock reveal mid-flight — gives users an escape long before all tiles land. */
+  enterDockRevealAtMs: 180,
+  /** Single budget for shell reveal ∥ overlay dissolve ∥ FLIP gather (snappier than enter). */
+  exitTotalMs: 280,
+  exitStaggerMs: 3,
+  exitEase: 'power2.in',
   exitOverlayEase: easeViewInset,
+  /** Lightbox open: substantial scale, ease-out-expo for spring snap. Pairs with grid pushback (CSS, same curve). */
+  lightboxOpenSec: 0.32,
+  lightboxOpenEase: 'expo.out',
+  /** Lightbox close: ~25% faster than open, power2.in pulled-home feel. */
+  lightboxCloseSec: 0.24,
+  lightboxCloseEase: 'power2.in',
 } as const
 
-/** Per-clone exit duration so that the last-staggered clone still finishes inside EXIT_TOTAL_MS. */
+/** Lightbox image rect: image's natural aspect, fit within 92vw × 88vh, centered. */
+function computeLightboxRect(aspectW: number, aspectH: number): ArchivePlainRect {
+  const maxW = Math.min(window.innerWidth * 0.92, 1400)
+  const maxH = window.innerHeight * 0.88
+  const ratio = aspectW / aspectH
+  let w = maxW
+  let h = w / ratio
+  if (h > maxH) {
+    h = maxH
+    w = h * ratio
+  }
+  return {
+    left: (window.innerWidth - w) / 2,
+    top: (window.innerHeight - h) / 2,
+    width: w,
+    height: h,
+  }
+}
+
 function exitFlyDurationSec(tileCount: number): number {
   const span = TIMING.exitTotalMs / 1000
   const stagger = TIMING.exitStaggerMs / 1000
@@ -108,15 +149,10 @@ function resolveTeaserTriplet(entry: ArchivePlainRect[] | null | undefined): Arc
   return teaserTargetsFromStackBounds(bounds)
 }
 
-/**
- * ENTER: spawn a clone at `from`, fly to `to`, crossfade-handoff to the
- * real cell at `revealAtFraction` of the flight, then tail-fade to 0.
- *
- * The clone uses GPU-only props (transform + opacity) for the duration.
- */
+/** ENTER: clone flies stack→target; calls `onHandoff` mid-flight so the real cell can crossfade in under the tail-fade. */
 function flyCardEnter(
   host: HTMLElement,
-  color: string,
+  src: string,
   from: ArchivePlainRect,
   to: ArchivePlainRect,
   zIndex: number,
@@ -124,15 +160,24 @@ function flyCardEnter(
 ): gsap.core.Timeline {
   const el = document.createElement('div')
   el.className = 'archiveFlyCard archiveFlyCard--enter'
-  el.style.background = color
   el.style.borderRadius = '14px'
-  /* Lighter shadow during flight so the moment the real cell crossfades
-   * in (with its heavier shadow) reads as "settling," not "popping." */
-  el.style.boxShadow = '0 8px 22px rgba(0, 0, 0, 0.18)'
+  el.style.overflow = 'hidden'
+  /* Subtle ambient shadow — reads against the fading-in black backdrop without competing with the cell's landed shadow. */
+  el.style.boxShadow = '0 6px 18px rgba(0, 0, 0, 0.22)'
+  const img = document.createElement('img')
+  img.src = src
+  img.alt = ''
+  img.draggable = false
+  img.decoding = 'async'
+  img.setAttribute('fetchpriority', 'high')
+  img.style.display = 'block'
+  img.style.width = '100%'
+  img.style.height = '100%'
+  img.style.objectFit = 'cover'
+  el.appendChild(img)
   host.appendChild(el)
 
   const flightSec = TIMING.enterFlightMs / 1000
-  const fadeInSec = TIMING.enterCloneFadeInMs / 1000
   const fadeOutSec = TIMING.enterCloneFadeOutMs / 1000
   const handoffAtSec = (TIMING.enterFlightMs * TIMING.enterCellRevealAtFraction) / 1000
   const tailStartSec = Math.max(handoffAtSec, flightSec - fadeOutSec)
@@ -152,7 +197,7 @@ function flyCardEnter(
     willChange: 'transform, opacity',
     zIndex,
     pointerEvents: 'none',
-    opacity: TIMING.enterCloneInitialOpacity,
+    opacity: 1,
   })
 
   const tl = gsap.timeline({
@@ -174,16 +219,6 @@ function flyCardEnter(
     0,
   )
 
-  tl.to(
-    el,
-    {
-      opacity: 1,
-      duration: fadeInSec,
-      ease: TIMING.enterEase,
-    },
-    0,
-  )
-
   tl.call(onHandoff, undefined, handoffAtSec)
 
   tl.to(
@@ -199,10 +234,10 @@ function flyCardEnter(
   return tl
 }
 
-/** EXIT: simple FLIP clone, gathers from grid back to stack. No fade. */
+/** EXIT: FLIP clone gathers from grid back to stack. */
 function flyCardExit(
   host: HTMLElement,
-  color: string,
+  src: string,
   from: ArchivePlainRect,
   to: ArchivePlainRect,
   durationSec: number,
@@ -211,9 +246,19 @@ function flyCardExit(
 ): gsap.core.Timeline {
   const el = document.createElement('div')
   el.className = 'archiveFlyCard archiveFlyCard--exit'
-  el.style.background = color
   el.style.borderRadius = '14px'
+  el.style.overflow = 'hidden'
   el.style.boxShadow = '0 12px 28px rgba(16, 22, 31, 0.12)'
+  const img = document.createElement('img')
+  img.src = src
+  img.alt = ''
+  img.draggable = false
+  img.decoding = 'async'
+  img.style.display = 'block'
+  img.style.width = '100%'
+  img.style.height = '100%'
+  img.style.objectFit = 'cover'
+  el.appendChild(img)
   host.appendChild(el)
 
   gsap.set(el, {
@@ -259,7 +304,7 @@ function addEnterFlights(
   const step = TIMING.enterStaggerMs / 1000
   archiveItems.forEach((item, i) => {
     master.add(
-      flyCardEnter(host, item.color, stackOriginRect(i, triplet), targets[i]!, 200 + i, () => {
+      flyCardEnter(host, item.src, stackOriginRect(i, triplet), targets[i]!, 200 + i, () => {
         const cell = cellRefs[i]
         if (cell) cell.classList.remove('archiveCell--flyPending')
       }),
@@ -279,7 +324,7 @@ function addExitFlights(
   archiveItems.forEach((item, i) => {
     const z = 260 + (TILE_COUNT - 1 - i)
     master.add(
-      flyCardExit(host, item.color, fromRects[i]!, stackOriginRect(i, triplet), flyDurSec, TIMING.exitEase, z),
+      flyCardExit(host, item.src, fromRects[i]!, stackOriginRect(i, triplet), flyDurSec, TIMING.exitEase, z),
       i * step,
     )
   })
@@ -297,18 +342,56 @@ export function ArchiveOverlay({ entryRects, onClosed, onShellRevealStart }: Arc
     typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
   const [flyPending, setFlyPending] = useState(() => !reducedMotion)
-  /* Dock back-button stays hidden during enter so it never appears "behind"
-   * the flying clones (which spawn near the bottom-center, right where the
-   * dock sits). Reveals once cards have settled. */
+  /* Hidden until mid-flight — dock sits where the clones spawn, can't be "behind" what isn't there. */
   const [dockReady, setDockReady] = useState(() => reducedMotion)
-  const [lightboxId, setLightboxId] = useState<string | null>(null)
+  /* Two-frame swap: mount with `--entering` (opacity 0), flip to `--enterReady` next frame
+     so the CSS transition fires from a known state. */
+  const [enterReady, setEnterReady] = useState(() => reducedMotion)
+  /* Lightbox FLIP state: the `from` rect (clicked cell, viewport coords) and `to` rect (computed at open) drive the scale animation.
+     Stays mounted through the close anim — `closing` flag tells handlers to leave it alone while GSAP runs. */
+  const [lightbox, setLightbox] = useState<{
+    item: typeof archiveItems[number]
+    cellIndex: number
+    fromRect: ArchivePlainRect
+    toRect: ArchivePlainRect
+  } | null>(null)
+  const [lightboxClosing, setLightboxClosing] = useState(false)
+  /* Column count drives both the DOM structure (one .archiveColumn per column)
+     and the elastic-grid lag profile. Synced to the same MQ as the CSS. */
+  const [columnCount, setColumnCount] = useState<number>(() => {
+    if (typeof window === 'undefined') return 2
+    return window.matchMedia(COLUMN_COUNT_MQ).matches ? 3 : 2
+  })
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mq = window.matchMedia(COLUMN_COUNT_MQ)
+    const apply = () => setColumnCount(mq.matches ? 3 : 2)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
 
   const overlayRootRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const flyHostRef = useRef<HTMLDivElement | null>(null)
   const cellRefs = useRef<(HTMLButtonElement | null)[]>([])
+  /* Indexed by column number (left → right). Reset on column-count change so
+     stale refs from a wider layout don't leak into the elastic init. */
+  const columnRefs = useRef<(HTMLDivElement | null)[]>([])
   const exitLockRef = useRef(false)
   const enterCtxRef = useRef<gsap.Context | null>(null)
   const exitTimelineRef = useRef<gsap.core.Timeline | null>(null)
+  const dockRevealTimerRef = useRef<number | null>(null)
+  const lightboxImgRef = useRef<HTMLImageElement | null>(null)
+  const lightboxAnimRef = useRef<gsap.core.Timeline | null>(null)
+
+  /* Reset the column-ref bucket whenever the layout reshapes — React will
+     repopulate via the fresh ref callbacks below. */
+  const columns = useMemo(() => {
+    columnRefs.current = new Array(columnCount).fill(null)
+    return distributeIntoColumns(archiveItems, columnCount)
+  }, [columnCount])
 
   const ensureFlyHost = useCallback(() => {
     if (flyHostRef.current) return flyHostRef.current
@@ -328,8 +411,37 @@ export function ArchiveOverlay({ entryRects, onClosed, onShellRevealStart }: Arc
     flyHostRef.current = null
   }, [])
 
+  /* Warm cache for keyboard / direct-URL opens that bypass teaser hover. */
+  useEffect(() => {
+    preloadArchiveImages(aboveFoldSrcs, 'high')
+    preloadArchiveImages(restSrcs, 'low')
+  }, [])
+
+  /* ───── Elastic per-column lag (Codrops "Elastic Grid Scroll" feel) ─────
+     Each .archiveColumn drifts behind the live scroll by lag×velocity, then
+     eases home when scroll stops. Center column is stiff, outer columns loose
+     → the wall of cards reads as a soft, elastic ripple from the edges.
+     Skipped under reduced motion (no transforms applied at all). */
+  useEffect(() => {
+    if (reducedMotion) return
+    const scrollEl = scrollRef.current
+    if (!scrollEl) return
+    const cols = columnRefs.current.filter((c): c is HTMLDivElement => c !== null)
+    if (cols.length === 0) return
+    const handle = initElasticGridScroll(scrollEl, cols)
+    return () => handle.destroy()
+  }, [columnCount, reducedMotion])
+
   useLayoutEffect(() => {
     if (reducedMotion) return
+
+    /* Flip enterReady on the next frame so the CSS opacity transition has two distinct states to interpolate. */
+    const raf = requestAnimationFrame(() => setEnterReady(true))
+
+    /* Dock reveals mid-flight, not at completion — gives the user an escape early. */
+    dockRevealTimerRef.current = window.setTimeout(() => {
+      setDockReady(true)
+    }, TIMING.enterDockRevealAtMs)
 
     const host = ensureFlyHost()
     enterCtxRef.current?.revert()
@@ -356,11 +468,8 @@ export function ArchiveOverlay({ entryRects, onClosed, onShellRevealStart }: Arc
 
         const master = gsap.timeline({
           onComplete: () => {
-            /* Reconciliation: per-cell handoffs already removed --flyPending
-             * from each cell as its clone landed. Setting state here is a
-             * safety net so React's source of truth matches the DOM. */
+            /* Per-cell handoffs already removed --flyPending; sync React state. */
             setFlyPending(false)
-            setDockReady(true)
             removeFlyHost()
           },
         })
@@ -371,6 +480,11 @@ export function ArchiveOverlay({ entryRects, onClosed, onShellRevealStart }: Arc
     }, host)
 
     return () => {
+      cancelAnimationFrame(raf)
+      if (dockRevealTimerRef.current !== null) {
+        window.clearTimeout(dockRevealTimerRef.current)
+        dockRevealTimerRef.current = null
+      }
       enterCtxRef.current?.revert()
       enterCtxRef.current = null
       removeFlyHost()
@@ -385,10 +499,101 @@ export function ArchiveOverlay({ entryRects, onClosed, onShellRevealStart }: Arc
     onClosed()
   }, [onClosed, removeFlyHost])
 
+  const openLightbox = useCallback(
+    (item: (typeof archiveItems)[number], index: number) => {
+      if (lightbox) return
+      const cell = cellRefs.current[index]
+      if (!cell) return
+      const r = cell.getBoundingClientRect()
+      const fromRect: ArchivePlainRect = { left: r.left, top: r.top, width: r.width, height: r.height }
+      const toRect = computeLightboxRect(item.aspectW, item.aspectH)
+      /* Hide source cell so we don't see the original underneath the FLIP image during scale-up. */
+      cell.style.visibility = 'hidden'
+      setLightbox({ item, cellIndex: index, fromRect, toRect })
+    },
+    [lightbox],
+  )
+
+  const closeLightbox = useCallback(() => {
+    if (!lightbox || lightboxClosing) return
+    const cell = cellRefs.current[lightbox.cellIndex]
+    const img = lightboxImgRef.current
+
+    if (reducedMotion || !cell || !img) {
+      if (cell) cell.style.visibility = ''
+      setLightbox(null)
+      return
+    }
+
+    setLightboxClosing(true)
+    /* Re-measure cell rect — masonry could have shifted (resize, scrollbar quirks). */
+    const r = cell.getBoundingClientRect()
+    const toCell: ArchivePlainRect = { left: r.left, top: r.top, width: r.width, height: r.height }
+    const lightRect = lightbox.toRect
+
+    lightboxAnimRef.current?.kill()
+    const tl = gsap.timeline({
+      onComplete: () => {
+        cell.style.visibility = ''
+        lightboxAnimRef.current = null
+        setLightboxClosing(false)
+        setLightbox(null)
+      },
+    })
+    tl.to(img, {
+      x: toCell.left - lightRect.left,
+      y: toCell.top - lightRect.top,
+      scaleX: toCell.width / lightRect.width,
+      scaleY: toCell.height / lightRect.height,
+      duration: TIMING.lightboxCloseSec,
+      ease: TIMING.lightboxCloseEase,
+    })
+    lightboxAnimRef.current = tl
+  }, [lightbox, lightboxClosing, reducedMotion])
+
+  /* OPEN: lightbox just mounted; image rendered at toRect. Set the FLIP-from transform, then animate to identity. */
+  useLayoutEffect(() => {
+    if (!lightbox || lightboxClosing) return
+    if (reducedMotion) return
+    const img = lightboxImgRef.current
+    if (!img) return
+
+    const { fromRect, toRect } = lightbox
+    gsap.set(img, {
+      x: fromRect.left - toRect.left,
+      y: fromRect.top - toRect.top,
+      scaleX: fromRect.width / toRect.width,
+      scaleY: fromRect.height / toRect.height,
+      transformOrigin: '0 0',
+      force3D: true,
+      willChange: 'transform',
+    })
+
+    lightboxAnimRef.current?.kill()
+    const tl = gsap.timeline({
+      onComplete: () => {
+        lightboxAnimRef.current = null
+      },
+    })
+    tl.to(img, {
+      x: 0,
+      y: 0,
+      scaleX: 1,
+      scaleY: 1,
+      duration: TIMING.lightboxOpenSec,
+      ease: TIMING.lightboxOpenEase,
+    })
+    lightboxAnimRef.current = tl
+
+    return () => {
+      tl.kill()
+    }
+  }, [lightbox, lightboxClosing, reducedMotion])
+
   const handleBack = useCallback(() => {
     if (exitLockRef.current) return
-    if (lightboxId) {
-      setLightboxId(null)
+    if (lightbox) {
+      closeLightbox()
       return
     }
 
@@ -399,6 +604,14 @@ export function ArchiveOverlay({ entryRects, onClosed, onShellRevealStart }: Arc
 
     exitLockRef.current = true
     onShellRevealStart(TIMING.exitTotalMs)
+
+    /* Drop the enter CSS transition before GSAP takes over opacity — avoids competing animators.
+       DOM-only mutation: React state stays as-is since we're about to unmount. */
+    const overlayEl = overlayRootRef.current
+    if (overlayEl) {
+      overlayEl.classList.remove('archiveOverlay--entering', 'archiveOverlay--enterReady')
+      overlayEl.style.opacity = '1'
+    }
 
     const host = ensureFlyHost()
     const exitTriplet = resolveTeaserTriplet(entryRects)
@@ -421,7 +634,6 @@ export function ArchiveOverlay({ entryRects, onClosed, onShellRevealStart }: Arc
       if (el) el.style.visibility = 'hidden'
     }
 
-    const overlayEl = overlayRootRef.current
     const master = gsap.timeline({
       onComplete: finishClose,
     })
@@ -438,10 +650,11 @@ export function ArchiveOverlay({ entryRects, onClosed, onShellRevealStart }: Arc
 
     addExitFlights(master, host, exitTriplet, fromRects, flyDurSec)
   }, [
+    closeLightbox,
     ensureFlyHost,
     entryRects,
     finishClose,
-    lightboxId,
+    lightbox,
     onShellRevealStart,
     reducedMotion,
   ])
@@ -461,43 +674,73 @@ export function ArchiveOverlay({ entryRects, onClosed, onShellRevealStart }: Arc
     () => () => {
       exitTimelineRef.current?.kill()
       exitTimelineRef.current = null
+      lightboxAnimRef.current?.kill()
+      lightboxAnimRef.current = null
     },
     [],
   )
 
-  const lightboxItem = lightboxId ? archiveItems.find((x) => x.id === lightboxId) : null
+  const enterStateClass = enterReady ? 'archiveOverlay--enterReady' : 'archiveOverlay--entering'
+  /* Drives CSS pushback on grid + dock; stays absent during close so the page springs back forward as the image FLIPs home. */
+  const lightboxOpenClass = lightbox && !lightboxClosing ? 'archivePage--lightboxOpen' : ''
 
   return (
     <div
       ref={overlayRootRef}
-      className="archivePage archiveOverlay"
+      className={`archivePage archiveOverlay ${enterStateClass} ${lightboxOpenClass}`}
       role="dialog"
       aria-modal="true"
       aria-label="Archive"
     >
       <div className="archivePageContent">
-        <div className="archiveScroll">
+        <div className="archiveScroll" ref={scrollRef}>
           <div className="archiveMasonry" role="list">
-            {archiveItems.map((item, i) => (
-              <button
-                key={item.id}
-                type="button"
-                role="listitem"
+            {columns.map((colCells, colIdx) => (
+              <div
+                key={colIdx}
+                className="archiveColumn"
                 ref={(node) => {
-                  cellRefs.current[i] = node
+                  columnRefs.current[colIdx] = node
                 }}
-                className={`archiveCell ${flyPending ? 'archiveCell--flyPending' : ''}`}
-                aria-label={`Open archive item ${i + 1}`}
-                onClick={() => setLightboxId(item.id)}
               >
-                <div
-                  className="archiveCellInner"
-                  style={{
-                    aspectRatio: `${item.aspectW} / ${item.aspectH}`,
-                    background: item.color,
-                  }}
-                />
-              </button>
+                {colCells.map(({ item, originalIndex: i }) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="listitem"
+                    ref={(node) => {
+                      cellRefs.current[i] = node
+                    }}
+                    className={`archiveCell ${flyPending ? 'archiveCell--flyPending' : ''}`}
+                    aria-label={`Open archive item ${i + 1}`}
+                    onClick={() => openLightbox(item, i)}
+                  >
+                    <div
+                      className="archiveCellInner"
+                      style={{
+                        aspectRatio: `${item.aspectW} / ${item.aspectH}`,
+                      }}
+                    >
+                      <img
+                        className="archiveCellImage"
+                        src={item.src}
+                        alt={item.alt}
+                        loading={i < ABOVE_FOLD_COUNT ? 'eager' : 'lazy'}
+                        fetchPriority={i < ABOVE_FOLD_COUNT ? 'high' : 'low'}
+                        decoding="async"
+                        draggable={false}
+                        ref={(node) => {
+                          /* Cached images may already be `complete` before React attaches `onLoad` — flip ready immediately. */
+                          if (node?.complete && node.naturalHeight > 0) {
+                            node.classList.add('archiveCellImage--ready')
+                          }
+                        }}
+                        onLoad={(e) => e.currentTarget.classList.add('archiveCellImage--ready')}
+                      />
+                    </div>
+                  </button>
+                ))}
+              </div>
             ))}
           </div>
         </div>
@@ -510,43 +753,45 @@ export function ArchiveOverlay({ entryRects, onClosed, onShellRevealStart }: Arc
             aria-hidden={!dockReady}
             tabIndex={dockReady ? 0 : -1}
           >
-            Back
+            ← Back
           </button>
         </div>
       </div>
 
-      {lightboxItem &&
-        createPortal(
+      {lightbox && (
+        <>
+          {/* Click-catcher behind the image. Transparent — the dim is created by fading the grid itself, not by a scrim. */}
           <div
-            className="archiveLightbox"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Archive preview"
-            onClick={() => setLightboxId(null)}
+            className="archiveLightboxScrim"
+            onClick={closeLightbox}
+            aria-hidden="true"
+          />
+          <img
+            ref={lightboxImgRef}
+            className="archiveLightboxImage"
+            src={lightbox.item.src}
+            alt={lightbox.item.alt}
+            decoding="async"
+            draggable={false}
+            onClick={closeLightbox}
+            style={{
+              position: 'fixed',
+              left: lightbox.toRect.left,
+              top: lightbox.toRect.top,
+              width: lightbox.toRect.width,
+              height: lightbox.toRect.height,
+            }}
+          />
+          <button
+            type="button"
+            className="archiveLightboxClose"
+            aria-label="Close preview"
+            onClick={closeLightbox}
           >
-            <div className="archiveLightboxInner" onClick={(e) => e.stopPropagation()}>
-              <button
-                type="button"
-                className="archiveLightboxClose"
-                aria-label="Close preview"
-                onClick={() => setLightboxId(null)}
-              >
-                ×
-              </button>
-              <div
-                className="archiveLightboxSwatch"
-                style={{
-                  aspectRatio: `${lightboxItem.aspectW} / ${lightboxItem.aspectH}`,
-                  background: lightboxItem.color,
-                }}
-              />
-              <p className="archiveLightboxCaption">
-                Placeholder {archiveItems.indexOf(lightboxItem) + 1} — swap for your archive image.
-              </p>
-            </div>
-          </div>,
-          document.body,
-        )}
+            ×
+          </button>
+        </>
+      )}
     </div>
   )
 }

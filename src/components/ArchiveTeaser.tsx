@@ -1,14 +1,19 @@
-import { useLayoutEffect, useRef } from 'react'
-import { ARCHIVE_TEASER_COLORS } from '../data/archivePlaceholders'
+import { useCallback, useLayoutEffect, useRef } from 'react'
+import { archiveItems } from '../data/archivePlaceholders'
+import { preloadArchiveImages } from '../lib/archivePreload'
 import { persistArchiveTeaserBounds } from '../lib/archiveTeaserBounds'
 
 type ArchiveTeaserProps = {
   onNavigate: (cardRects: DOMRect[]) => void
 }
 
+const teaserPreview = archiveItems.slice(0, 3)
+const aboveFoldSrcs = archiveItems.slice(0, 12).map((item) => item.src)
+const restSrcs = archiveItems.slice(12).map((item) => item.src)
+
 export function ArchiveTeaser({ onNavigate }: ArchiveTeaserProps) {
   const stackRef = useRef<HTMLDivElement>(null)
-  const cardRefs = useRef<(HTMLSpanElement | null)[]>([])
+  const cardRefs = useRef<(HTMLImageElement | null)[]>([])
 
   useLayoutEffect(() => {
     const el = stackRef.current
@@ -17,6 +22,12 @@ export function ArchiveTeaser({ onNavigate }: ArchiveTeaserProps) {
     write()
     window.addEventListener('resize', write)
     return () => window.removeEventListener('resize', write)
+  }, [])
+
+  /* Race the bytes on intent so click-to-open is instant. */
+  const handlePreload = useCallback(() => {
+    preloadArchiveImages(aboveFoldSrcs, 'high')
+    preloadArchiveImages(restSrcs, 'low')
   }, [])
 
   const handleActivate = () => {
@@ -32,13 +43,18 @@ export function ArchiveTeaser({ onNavigate }: ArchiveTeaserProps) {
       role="listitem"
       aria-label="See the archive"
       onClick={handleActivate}
+      onMouseEnter={handlePreload}
+      onFocus={handlePreload}
+      onTouchStart={handlePreload}
     >
       <div className="archiveTeaserStack" ref={stackRef} aria-hidden>
-        {ARCHIVE_TEASER_COLORS.map((color, i) => (
-          <span
-            key={color}
+        {teaserPreview.map((item, i) => (
+          <img
+            key={item.id}
             className={`archiveTeaserCard archiveTeaserCard--${i + 1}`}
-            style={{ background: color }}
+            src={item.src}
+            alt=""
+            draggable={false}
             ref={(node) => {
               cardRefs.current[i] = node
             }}

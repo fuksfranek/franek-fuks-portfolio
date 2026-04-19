@@ -19,16 +19,22 @@ import { SquircleMediaStroke } from './SquircleMediaStroke'
 import gsap from 'gsap'
 import { Squircle } from '@squircle-js/react'
 import { ArchiveOverlay } from './components/ArchiveOverlay'
+import { ArchiveSheet } from './components/ArchiveSheet'
 import { ArchiveTeaser } from './components/ArchiveTeaser'
-import { ARCHIVE_SHELL_EXIT_MS } from './lib/archiveShellTiming'
 import { easeViewInset } from './lib/easeViewInset'
 import { runWithViewTransition } from './lib/viewTransition'
-import { computeAboutMarkFlipInvert } from './lib/aboutMarkFlip'
 import type { StageChromeTone } from './lib/stageChromeSampling'
 import { sampleStageChromeTone } from './lib/stageChromeSampling'
 import './App.css'
 
 const USE_COLOR_MEDIA_PLACEHOLDERS = false
+
+/**
+ * Experiment toggle: render the archive as an iOS-style bottom sheet drawer instead of
+ * the full-page FLIP-flight overlay. Flip back to `false` to restore the original
+ * overlay behavior (entry rects / view-transition / shell--under-archive fade).
+ */
+const USE_ARCHIVE_SHEET = true
 
 /** Matches `--project-media-radius` in index.css */
 const PROJECT_MEDIA_RADIUS = 20
@@ -124,13 +130,10 @@ function mediaPlaceholderColor(media: Media) {
 }
 
 /**
- * Some of the WebMs in the gallery are exported without a duration field in the EBML
- * header, so `<video>.duration` reports `Infinity` until the entire file is scanned.
- * That breaks the story-meter progress bar (and any seek-aware UI).
- *
- * The fix: fetch the file once, hand the browser a `blob:` URL pointing at the
- * fully-buffered bytes, and `duration` becomes available immediately. We cache the
- * resolved URLs in-memory keyed by source so a second visit is free.
+ * Some gallery WebMs ship without a duration in the EBML header, so `<video>.duration`
+ * reports `Infinity` until the file is fully scanned. Serving a `blob:` URL of the
+ * fully-buffered bytes makes `duration` finite on `loadedmetadata` and unblocks the
+ * story-meter. Cached per src so a second visit is free.
  */
 const videoBlobCache = new Map<string, string>()
 const videoBlobInflight = new Map<string, Promise<string>>()
@@ -159,7 +162,7 @@ function loadVideoAsBlobUrl(src: string): Promise<string> {
   return p
 }
 
-/** Returns a stable blob URL for the given video src; falls back to the direct src on error. */
+/** Resolves to a stable blob URL for the video; falls back to direct src on fetch failure. */
 function useResolvedVideoSrc(src: string, enabled: boolean): string | undefined {
   const [resolved, setResolved] = useState<string | undefined>(() =>
     enabled ? videoBlobCache.get(src) : undefined,
@@ -181,7 +184,6 @@ function useResolvedVideoSrc(src: string, enabled: boolean): string | undefined 
         if (!cancelled) setResolved(url)
       })
       .catch(() => {
-        // Network/permissions failure — fall back to the direct src (worse duration story but at least plays).
         if (!cancelled) setResolved(src)
       })
     return () => {
@@ -204,7 +206,7 @@ const MediaView = forwardRef<
     onMediaDecoded?: () => void
   }
 >(function MediaView({ media, className, fit, variant = 'full', loop = true, onMediaDecoded }, ref) {
-  // Hooks must run unconditionally; only consume the result for full-variant videos.
+  /* Hook must run unconditionally; result is only consumed for full-variant videos. */
   const isFullVideo = media.kind === 'video' && variant === 'full'
   const blobSrc = useResolvedVideoSrc(media.kind === 'video' ? media.src : '', isFullVideo)
 
@@ -226,8 +228,7 @@ const MediaView = forwardRef<
         />
       )
     }
-    // Full video: prefer the blob URL (always knows duration). While it loads, render the
-    // <video> element with `src` omitted so the poster image stands in — no broken-duration flash.
+    /* Prefer the blob URL (finite duration). While it loads, src is undefined and the poster shows. */
     return (
       <video
         ref={ref as Ref<HTMLVideoElement>}
@@ -259,21 +260,11 @@ const MediaView = forwardRef<
 })
 
 /* ─────────────────────────────────────────────────────────
- * GALLERY STAGE STORYBOARD
+ * GALLERY STAGE — dual-layer crossfade
  *
- *    0ms   asset prop changes → kick off Image.decode() of the next src
- *    *ms   decode resolves → atomic swap to new src (already in cache)
- *          previous frame is mounted as an "outgoing" layer on top
- *    0ms   outgoing layer begins fading 1 → 0 (GALLERY_FADE_MS)
- *  140ms   outgoing layer reaches 0 and is unmounted
- *
- * Project change (gallery prop changes upstream):
- *   the entire gallery is preloaded in parallel so subsequent step-throughs
- *   resolve their decode immediately — the previous frame stays visible the
- *   whole time, so no background shows through the squircle.
- *
- * Videos: bypass the decode wait and swap immediately; the previous image
- * still crossfades out beneath the loading video (no flash to background).
+ * On asset change: Image.decode() the next src, then swap. The previous frame
+ * is mounted as an "outgoing" layer on top and fades 1→0 over GALLERY_FADE_MS.
+ * Video swaps immediately (no decode wait); image underneath still crossfades.
  * ───────────────────────────────────────────────────────── */
 const GALLERY_FADE_MS = 140
 
@@ -620,30 +611,6 @@ function pointToRectDistance(x: number, y: number, rect: DOMRect) {
   return Math.hypot(dx, dy)
 }
 
-function warsawClockWithZone(now = new Date()) {
-  const time = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/Warsaw',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(now)
-  const longTz = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Europe/Warsaw',
-    timeZoneName: 'long',
-  })
-    .formatToParts(now)
-    .find((p) => p.type === 'timeZoneName')?.value
-  const isDst = longTz ? /summer|daylight/i.test(longTz) : false
-  return `${time} ${isDst ? 'CEST' : 'CET'}`
-}
-
-function formatWarsawAboutMeta(now = new Date()) {
-  return {
-    place: 'Warsaw, Poland',
-    clock: warsawClockWithZone(now),
-  }
-}
-
 type PlainTeaserRect = { top: number; left: number; width: number; height: number }
 
 function serializeTeaserRects(rects: DOMRect[]): PlainTeaserRect[] {
@@ -657,8 +624,6 @@ export default function PortfolioApp() {
   })
   const [isInfoOpen, setIsInfoOpen] = useState(false)
   const [isAboutOpen, setIsAboutOpen] = useState(false)
-  const [warsawAboutMeta, setWarsawAboutMeta] = useState(() => formatWarsawAboutMeta())
-  const [aboutRevealVersion, setAboutRevealVersion] = useState(0)
   const [railStagger, setRailStagger] = useState<RailStaggerState>({
     ready: false,
     stagger: [],
@@ -719,28 +684,34 @@ export default function PortfolioApp() {
   const [railDotAnimating, setRailDotAnimating] = useState(false)
   const stageWrapRef = useRef<HTMLElement>(null)
   const stageMediaRef = useRef<HTMLImageElement | HTMLVideoElement>(null)
-  /** Active story-meter fill — driven directly via DOM when the asset is a video (synced to currentTime/duration). */
+  /** Active story-meter fill — written via DOM when the asset is a video (synced to currentTime/duration). */
   const storyFillRef = useRef<HTMLSpanElement | null>(null)
   const [stageChromeTone, setStageChromeTone] = useState<StageChromeTone>('onDark')
   const stageHitRef = useRef<HTMLDivElement>(null)
   const projectInfoPanelRef = useRef<HTMLElement | null>(null)
   const railWrapRef = useRef<HTMLElement>(null)
   const railRef = useRef<HTMLDivElement>(null)
-  const aboutOverlayGridRef = useRef<HTMLDivElement | null>(null)
-  const identityRef = useRef<HTMLParagraphElement | null>(null)
   const aboutCloseCursorRef = useRef<HTMLDivElement | null>(null)
   const shellRef = useRef<HTMLDivElement>(null)
-  const archiveExitTimerRef = useRef<number | null>(null)
   const stageCornerRadiusRef = useRef(0)
   const stageCornerRafRef = useRef<number | null>(null)
   const [stageCornerRadius, setStageCornerRadius] = useState(0)
   const [archiveEntryRects, setArchiveEntryRects] = useState<PlainTeaserRect[] | null>(null)
+
+  /* Sheet experiment: keep mounted across the close animation so the slide-down can play.
+     `shellSheetState` mirrors the lifecycle so .shell pushback transitions in/out in sync. */
+  const [archiveSheetMounted, setArchiveSheetMounted] = useState(false)
+  const [shellSheetState, setShellSheetState] = useState<'idle' | 'pushed' | 'recovering'>('idle')
 
   const navigate = useNavigate()
   const location = useLocation()
   const archiveOpen = location.hash === '#archive'
 
   const closeArchive = useCallback(() => {
+    if (USE_ARCHIVE_SHEET) {
+      navigate({ pathname: '/', hash: '' }, { replace: true })
+      return
+    }
     runWithViewTransition(() => {
       flushSync(() => {
         navigate({ pathname: '/', hash: '' }, { replace: true })
@@ -748,7 +719,7 @@ export default function PortfolioApp() {
       })
       const sh = shellRef.current
       sh?.style.removeProperty('--archive-shell-reveal-ms')
-      sh?.classList.remove('shell--under-archive', 'shell--archive-revealing', 'shell--archive-exit')
+      sh?.classList.remove('shell--under-archive', 'shell--archive-revealing')
     })
   }, [navigate])
 
@@ -761,65 +732,61 @@ export default function PortfolioApp() {
 
   const transitionToArchive = useCallback(
     (cardRects: DOMRect[]) => {
+      if (USE_ARCHIVE_SHEET) {
+        /* Sheet plays its own slide-up; no view-transition / FLIP entry rects needed. */
+        navigate({ pathname: '/', hash: 'archive' }, { replace: false })
+        return
+      }
       const plain = serializeTeaserRects(cardRects)
-      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      if (reducedMotion) {
-        runWithViewTransition(() => {
-          flushSync(() => {
-            setArchiveEntryRects(plain)
-            navigate({ pathname: '/', hash: 'archive' }, { replace: false })
-          })
+      runWithViewTransition(() => {
+        flushSync(() => {
+          setArchiveEntryRects(plain)
+          navigate({ pathname: '/', hash: 'archive' }, { replace: false })
         })
-        return
-      }
-      const shell = shellRef.current
-      const open = () => {
-        archiveExitTimerRef.current = null
-        runWithViewTransition(() => {
-          flushSync(() => {
-            setArchiveEntryRects(plain)
-            navigate({ pathname: '/', hash: 'archive' }, { replace: false })
-          })
-        })
-      }
-      if (!shell) {
-        open()
-        return
-      }
-      if (archiveExitTimerRef.current !== null) {
-        window.clearTimeout(archiveExitTimerRef.current)
-      }
-      shell.classList.add('shell--archive-exit')
-      archiveExitTimerRef.current = window.setTimeout(open, ARCHIVE_SHELL_EXIT_MS)
+      })
     },
     [navigate],
   )
 
   useLayoutEffect(() => {
+    if (USE_ARCHIVE_SHEET) return
     const sh = shellRef.current
     if (!sh || !archiveOpen) return
-    sh.classList.remove('shell--archive-exit')
     sh.classList.add('shell--under-archive')
   }, [archiveOpen])
 
   useEffect(() => {
+    if (USE_ARCHIVE_SHEET) return
     if (location.hash === '#archive') return
     startTransition(() => {
       setArchiveEntryRects(null)
     })
     const sh = shellRef.current
     sh?.style.removeProperty('--archive-shell-reveal-ms')
-    sh?.classList.remove('shell--under-archive', 'shell--archive-revealing', 'shell--archive-exit')
+    sh?.classList.remove('shell--under-archive', 'shell--archive-revealing')
   }, [location.hash])
 
-  useEffect(
-    () => () => {
-      if (archiveExitTimerRef.current !== null) {
-        window.clearTimeout(archiveExitTimerRef.current)
-      }
-    },
-    [],
-  )
+  /* ───── Sheet lifecycle ─────
+     Open: mount sheet + push shell back in the same frame (paired).
+     Close: shell starts recovering immediately as sheet starts sliding down. */
+  useEffect(() => {
+    if (!USE_ARCHIVE_SHEET) return
+    if (archiveOpen) {
+      setArchiveSheetMounted(true)
+      setShellSheetState('pushed')
+    } else if (shellSheetState === 'pushed') {
+      setShellSheetState('recovering')
+    }
+  }, [archiveOpen, shellSheetState])
+
+  const handleSheetRequestClose = useCallback(() => {
+    navigate({ pathname: '/', hash: '' }, { replace: true })
+  }, [navigate])
+
+  const handleSheetClosed = useCallback(() => {
+    setArchiveSheetMounted(false)
+    setShellSheetState('idle')
+  }, [])
 
   const project = projects[projectIndex]
   const gallery = project.gallery
@@ -1155,22 +1122,11 @@ export default function PortfolioApp() {
   }, [cancelRailGapDynamics, cancelRailMomentum, resetRailPointer])
 
   const toggleAbout = useCallback(() => {
-    setIsAboutOpen((prev) => {
-      const next = !prev
-      if (next) setAboutRevealVersion((v) => v + 1)
-      return next
-    })
+    setIsAboutOpen((prev) => !prev)
   }, [])
 
   const closeAbout = useCallback(() => {
     setIsAboutOpen(false)
-  }, [])
-
-  useEffect(() => {
-    const tick = () => setWarsawAboutMeta(formatWarsawAboutMeta())
-    tick()
-    const timer = window.setInterval(tick, 15000)
-    return () => window.clearInterval(timer)
   }, [])
 
   useEffect(() => {
@@ -1186,13 +1142,12 @@ export default function PortfolioApp() {
         const blocks = Array.from(panel.querySelectorAll<HTMLElement>('[data-info-reveal="block"]'))
         if (!blocks.length || disposed) return
         gsap.killTweensOf(blocks)
-        gsap.set(blocks, { autoAlpha: 0, y: 4 })
+        gsap.set(blocks, { autoAlpha: 0, scale: 0.985, transformOrigin: '50% 50%' })
         gsap.to(blocks, {
           autoAlpha: 1,
-          y: 0,
+          scale: 1,
           duration: TIMING.lineRevealMs / 1000,
           ease: 'power1.out',
-          stagger: 0.04,
           overwrite: 'auto',
         })
       })
@@ -1203,117 +1158,6 @@ export default function PortfolioApp() {
       cancelAnimationFrame(rafInner)
     }
   }, [isInfoOpen, project.id, project.description, project.category])
-
-  useEffect(() => {
-    if (!isAboutOpen) return
-    const grid = aboutOverlayGridRef.current
-    if (!grid) return
-    const reducedMotion =
-      typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
-    let disposed = false
-    let raf1 = 0
-    let raf2 = 0
-    let raf3 = 0
-    let tl: gsap.core.Timeline | null = null
-
-    const run = () => {
-      if (disposed) return
-      const identityEl = identityRef.current
-      const mark = grid.querySelector<HTMLElement>('.aboutOverlayMark')
-      const lead = grid.querySelector<HTMLElement>('[data-about-reveal="block"]')
-      if (!lead || !mark) return
-
-      gsap.killTweensOf([mark, lead])
-
-      if (reducedMotion) {
-        gsap.set(mark, { clearProps: 'transform' })
-        gsap.set(lead, { autoAlpha: 1, y: 0 })
-        return
-      }
-
-      if (!identityEl) {
-        gsap.set(mark, { clearProps: 'transform' })
-        gsap.set(lead, { autoAlpha: 0, y: 10 })
-        gsap.to(lead, {
-          autoAlpha: 1,
-          y: 0,
-          duration: TIMING.lineRevealMs / 1000,
-          ease: 'power1.out',
-          delay: TIMING.aboutLineRevealDelayMs / 1000,
-          overwrite: 'auto',
-        })
-        return
-      }
-
-      const from = identityEl.getBoundingClientRect()
-      const to = mark.getBoundingClientRect()
-      const inv = computeAboutMarkFlipInvert(from, to)
-
-      if (!inv || to.width < 2 || to.height < 2) {
-        gsap.set(mark, { clearProps: 'transform' })
-        gsap.set(lead, { autoAlpha: 0, y: 10 })
-        gsap.to(lead, {
-          autoAlpha: 1,
-          y: 0,
-          duration: TIMING.lineRevealMs / 1000,
-          ease: 'power1.out',
-          delay: TIMING.aboutLineRevealDelayMs / 1000,
-          overwrite: 'auto',
-        })
-        return
-      }
-
-      /* Enter = ease-out (animations.dev); only transform + opacity on lead */
-      tl = gsap.timeline({ defaults: { ease: 'power2.out' } })
-      tl.fromTo(
-        mark,
-        {
-          x: inv.dx,
-          y: inv.dy,
-          scale: inv.scale,
-          transformOrigin: '0% 0%',
-          immediateRender: true,
-        },
-        {
-          x: 0,
-          y: 0,
-          scale: 1,
-          duration: TIMING.aboutMarkFlipMs / 1000,
-          ease: 'power2.out',
-          transformOrigin: '0% 0%',
-        },
-      ).fromTo(
-        lead,
-        { autoAlpha: 0, y: 10 },
-        {
-          autoAlpha: 1,
-          y: 0,
-          duration: TIMING.lineRevealMs / 1000,
-          ease: 'power1.out',
-        },
-        `-=${TIMING.aboutMarkLeadOverlapMs / 1000}`,
-      )
-    }
-
-    raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        raf3 = requestAnimationFrame(run)
-      })
-    })
-
-    return () => {
-      disposed = true
-      tl?.kill()
-      cancelAnimationFrame(raf1)
-      cancelAnimationFrame(raf2)
-      cancelAnimationFrame(raf3)
-      const mark = grid.querySelector<HTMLElement>('.aboutOverlayMark')
-      const lead = grid.querySelector<HTMLElement>('[data-about-reveal="block"]')
-      if (mark) gsap.killTweensOf(mark)
-      if (lead) gsap.killTweensOf(lead)
-    }
-  }, [isAboutOpen, aboutRevealVersion])
 
   useEffect(() => {
     isInfoOpenRef.current = isInfoOpen
@@ -1896,9 +1740,7 @@ export default function PortfolioApp() {
     }
   }, [asset, runChromeSample])
 
-  /* Preload every image in the active gallery so step-throughs (manual or auto)
-   * resolve their decode immediately — keeps the previous frame visible during
-   * the swap and prevents background flashes through the squircle. */
+  /* Preload the whole gallery so step-through swaps resolve their decode immediately. */
   useEffect(() => {
     if (USE_COLOR_MEDIA_PLACEHOLDERS) return
     for (const entry of gallery) {
@@ -1912,42 +1754,28 @@ export default function PortfolioApp() {
   useEffect(() => {
     if (!canStep) return
 
-    // Image: keep the constant story duration (CSS keyframes drive the fill).
+    /* Image: constant story duration (CSS keyframes drive the fill). */
     if (asset.kind !== 'video') {
-      const timer = window.setTimeout(() => {
-        goNext()
-      }, STORY_DURATION_MS)
-      return () => window.clearTimeout(timer)
-    }
-
-    // Video: drive the meter from the playhead each frame, advance on `ended`.
-    // The video element is fed a blob URL by `useResolvedVideoSrc`, so `duration`
-    // is always finite by the time `loadedmetadata` fires — no probing needed.
-    const el = stageMediaRef.current
-    if (!(el instanceof HTMLVideoElement)) {
       const timer = window.setTimeout(() => goNext(), STORY_DURATION_MS)
       return () => window.clearTimeout(timer)
     }
-    const v = el
+
+    /* Video: drive the meter from the playhead, advance on `ended`.
+     * `useResolvedVideoSrc` feeds a blob URL, so `duration` is finite. */
+    const v = stageMediaRef.current
+    if (!(v instanceof HTMLVideoElement)) {
+      const timer = window.setTimeout(() => goNext(), STORY_DURATION_MS)
+      return () => window.clearTimeout(timer)
+    }
 
     let cancelled = false
-    let advanced = false
     let raf = 0
-    /** Watchdog so a broken/unfetchable clip can never permanently stall the slide. */
-    const watchdog = window.setTimeout(() => advance(), 60_000)
 
     const writeFill = (p: number) => {
       const node = storyFillRef.current
       if (!node) return
       const clamped = p < 0 ? 0 : p > 1 ? 1 : p
       node.style.transform = `scaleX(${clamped})`
-    }
-
-    function advance() {
-      if (advanced || cancelled) return
-      advanced = true
-      writeFill(1)
-      goNext()
     }
 
     const tick = () => {
@@ -1959,7 +1787,10 @@ export default function PortfolioApp() {
       raf = requestAnimationFrame(tick)
     }
 
-    const onEnded = () => advance()
+    const onEnded = () => {
+      writeFill(1)
+      goNext()
+    }
     v.addEventListener('ended', onEnded)
 
     writeFill(0)
@@ -1968,7 +1799,6 @@ export default function PortfolioApp() {
     return () => {
       cancelled = true
       cancelAnimationFrame(raf)
-      window.clearTimeout(watchdog)
       v.removeEventListener('ended', onEnded)
     }
   }, [asset, assetIndex, canStep, goNext, projectIndex])
@@ -2161,12 +1991,19 @@ export default function PortfolioApp() {
     .filter(Boolean)
     .join(' ')
 
+  const sheetShellClass =
+    shellSheetState === 'pushed'
+      ? 'shell--pushed-by-sheet'
+      : shellSheetState === 'recovering'
+        ? 'shell--pushed-by-sheet shell--sheet-recovering'
+        : ''
+
   return (
     <div
       ref={shellRef}
       className={`shell ${isInfoOpen ? 'shell--info' : ''} ${isAboutOpen ? 'shell--about' : ''} ${
         stageChromeTone === 'onLight' ? 'shell--chrome-on-light' : 'shell--chrome-on-dark'
-      }`}
+      } ${sheetShellClass}`}
       aria-hidden={archiveOpen}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
@@ -2282,7 +2119,7 @@ export default function PortfolioApp() {
 
       <header className="topBar">
         <div className="topBarLead">
-          <p ref={identityRef} className="identity" aria-hidden={isAboutOpen}>
+          <p className="identity" aria-hidden={isAboutOpen}>
             fuksfranek
           </p>
           <button
@@ -2328,33 +2165,21 @@ export default function PortfolioApp() {
         </div>
       </header>
 
-      {isAboutOpen ? (
-        <aside id="about-overlay" className="aboutOverlay aboutOverlay--open" aria-hidden={false} onClick={closeAbout}>
-          <div className="aboutOverlayGrid" ref={aboutOverlayGridRef}>
-            <div className="aboutOverlayMarkSlot">
-              <h1 className="aboutOverlayMark">fuksfranek</h1>
-            </div>
-            <div className="aboutOverlayBottom">
-              <div className="aboutOverlayMeta">
-                <p className="aboutOverlayPlace">{warsawAboutMeta.place}</p>
-                <p className="aboutOverlayClock" aria-live="polite">
-                  {warsawAboutMeta.clock}
-                </p>
-              </div>
-              <div className="aboutOverlayInner">
-                <div className="aboutOverlayCopy" data-about-reveal="block">
-                  <p className="aboutOverlayLead">
-                    I&apos;m Franek, a 21yo designer working at the intersection of brand, digital and traditional
-                    graphic design. Currently designing and building websites for US-based startups at Tonik. Open for
-                    freelance, available from September —{' '}
-                    <a href="mailto:franek.fuks@gmail.com">franek.fuks@gmail.com</a>
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </aside>
-      ) : null}
+      <aside
+        id="about-overlay"
+        className={`aboutOverlay ${isAboutOpen ? 'aboutOverlay--open' : ''}`}
+        aria-hidden={!isAboutOpen}
+        onClick={isAboutOpen ? closeAbout : undefined}
+      >
+        <div className="aboutOverlayContent">
+          <p className="aboutOverlayText">
+            I&apos;m Franek, a 21yo designer working at the intersection of brand, digital and traditional
+            graphic design. Currently designing and building websites for US-based startups at Tonik. Open for
+            freelance, available from September —{' '}
+            <a href="mailto:franek.fuks@gmail.com">franek.fuks@gmail.com</a>
+          </p>
+        </div>
+      </aside>
 
       <footer
         className="railWrap"
@@ -2488,16 +2313,27 @@ export default function PortfolioApp() {
         </svg>
       </div>
 
-      {archiveOpen
-        ? createPortal(
-            <ArchiveOverlay
-              entryRects={archiveEntryRects}
-              onClosed={closeArchive}
-              onShellRevealStart={startArchiveShellReveal}
-            />,
-            document.body,
-          )
-        : null}
+      {USE_ARCHIVE_SHEET
+        ? archiveSheetMounted
+          ? createPortal(
+              <ArchiveSheet
+                open={archiveOpen}
+                onRequestClose={handleSheetRequestClose}
+                onClosed={handleSheetClosed}
+              />,
+              document.body,
+            )
+          : null
+        : archiveOpen
+          ? createPortal(
+              <ArchiveOverlay
+                entryRects={archiveEntryRects}
+                onClosed={closeArchive}
+                onShellRevealStart={startArchiveShellReveal}
+              />,
+              document.body,
+            )
+          : null}
 
       <p className="visuallyHidden" aria-live="polite">
         {stageLabel}

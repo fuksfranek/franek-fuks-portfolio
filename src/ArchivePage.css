@@ -16,6 +16,24 @@
   overflow: visible;
 }
 
+/* Backdrop fade-in: black surface emerges over 320ms with ease-out-expo
+   (snap to ~80% in the first 100ms, long settle). Runs in parallel with shell fade-out
+   and the FLIP flight, so cards appear to swarm a void that's coming into being. */
+.archiveOverlay {
+  opacity: 1;
+  transform: translateZ(0);
+  will-change: opacity;
+}
+
+.archiveOverlay--entering {
+  opacity: 0;
+}
+
+.archiveOverlay--enterReady {
+  opacity: 1;
+  transition: opacity 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 .archiveBack {
   margin: 0;
   padding: 0;
@@ -72,7 +90,6 @@
   position: relative;
   z-index: 1;
   padding: 0.55rem 1.25rem;
-  /* Pill (was 19px — odd against the 14/18/20/999 scale used elsewhere). */
   border-radius: 999px;
   background: rgb(255, 255, 255);
   border-style: none;
@@ -86,28 +103,24 @@
   line-height: 1.2;
   transform: scale(1);
   transform-origin: center;
-  /* Reveal uses ease-out-quint to match the cell crossfade curve;
-   * hover keeps the snappier ease-view-inset for tactile feedback. */
   transition:
-    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+    transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Hidden during the enter animation. The button is in DOM (so layout is
- * stable) but is invisible AND non-interactive — fly clones never appear
- * "in front of" it because there's nothing to be in front of. */
+/* Hidden during enter; in DOM so layout is stable, non-interactive so flying clones can't sit "in front" of it. */
 .archiveBack--dock--pending {
   opacity: 0;
-  transform: scale(0.96);
+  transform: scale(0.94);
   pointer-events: none;
 }
 
-/* Override .archivePage .archiveBack color (specificity 0,2,0) with matching specificity */
+/* Match .archivePage .archiveBack specificity to override its color. */
 .archivePage .archiveBack--dock {
   color: rgb(0, 0, 0);
 }
 
-/* Hover: slight scale, no opacity change (overrides .archiveBack:hover { opacity: 0.45 }) */
+/* Overrides .archiveBack:hover { opacity: 0.45 }. */
 .archiveBack--dock:hover {
   opacity: 1;
   transform: scale(1.06);
@@ -138,28 +151,58 @@
     calc(env(safe-area-inset-bottom, 0px) + 48px)
     var(--space-6);
   box-sizing: border-box;
+  transform-origin: 50% 50%;
+  /* Pushback when lightbox opens — paired with image FLIP (same easing/duration). */
+  transition:
+    transform 320ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 320ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Pinterest-style flow: shortest-column packing via CSS columns */
+.archivePage--lightboxOpen .archiveScroll {
+  transform: scale(0.96);
+  opacity: 0.1;
+  pointer-events: none;
+}
+
+.archiveBackDock {
+  transition:
+    opacity 320ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.archivePage--lightboxOpen .archiveBackDock {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+/* Real-DOM column layout: each column is its own wrapper so elastic-grid
+   per-column lag (lib/elasticGridScroll) can translate them independently.
+   Distribution into columns happens in JS (shortest-column packing) so masonry
+   quality is preserved without losing the ability to animate columns. */
 .archiveMasonry {
-  column-count: 2;
-  column-gap: var(--space-6);
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--space-6);
   width: 100%;
   max-width: none;
   margin: 0;
 }
 
-@media (min-width: 900px) {
-  .archiveMasonry {
-    column-count: 4;
-  }
+.archiveColumn {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  /* Hint the compositor: elastic-grid mutates transform every frame during scroll. */
+  will-change: transform;
 }
 
 .archiveCell {
   display: block;
   width: 100%;
-  margin: 0 0 var(--space-6);
-  break-inside: avoid;
+  margin: 0;
   padding: 0;
   border: none;
   background: none;
@@ -170,10 +213,9 @@
   box-shadow:
     0 2px 4px rgba(16, 22, 31, 0.06),
     0 12px 24px rgba(16, 22, 31, 0.06);
-  /* Reveal curve = ease-out-quint, paired with the GSAP clone tail-fade
-   * so cell + clone overlap is always ≥ 1 (no flash). */
+  /* Opacity overlaps the GSAP clone tail-fade — no flash at handoff. */
   transition:
-    opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms cubic-bezier(0.16, 1, 0.3, 1),
     transform 0.2s var(--ease-view-inset),
     box-shadow 0.2s ease;
 }
@@ -221,8 +263,26 @@
 
 .archiveCellInner {
   display: block;
+  position: relative;
   width: 100%;
   border-radius: inherit;
+  overflow: hidden;
+}
+
+.archiveCellImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  -webkit-user-drag: none;
+  /* Hidden until decode lands — graceful fade in instead of a hard pop when bytes arrive late. */
+  opacity: 0;
+  transition: opacity 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.archiveCellImage--ready {
+  opacity: 1;
 }
 
 /* No default opacity/filter transition: after FLIP handoff, stray recomputes were easing ~0.5s (cards looked like they faded). Transitions only when using the modifiers below. */
@@ -260,46 +320,40 @@
     filter 0.28s var(--ease-view-inset);
 }
 
-/* Real cell hidden during clone flight. Opacity (not visibility) so the
- * per-cell crossfade triggered by GSAP can transition cleanly. Cell still
- * occupies layout, so masonry positions are stable while clones fly above. */
+/* Hidden during clone flight; opacity (not visibility) so the per-cell crossfade can transition. */
 .archiveCell--flyPending {
   opacity: 0;
 }
 
-/* Lightbox (portaled to body — match dark archive chrome) */
-.archiveLightbox {
+/* Lightbox: image FLIPs from cell rect to viewport-contained rect (JS/GSAP).
+   Scrim is transparent — the dim is created by fading/scaling the grid behind it. */
+.archiveLightboxScrim {
   position: fixed;
   inset: 0;
+  z-index: 115;
+  background: transparent;
+  cursor: zoom-out;
+}
+
+.archiveLightboxImage {
   z-index: 120;
-  display: grid;
-  place-items: center;
-  padding: var(--space-6);
-  box-sizing: border-box;
-  background: rgba(0, 0, 0, 0.72);
-  backdrop-filter: blur(10px);
-}
-
-.archiveLightboxInner {
-  position: relative;
-  width: min(92vw, 42rem);
-  max-height: min(78vh, 52rem);
-  border-radius: 18px;
-  overflow: hidden;
-  box-shadow:
-    0 28px 56px rgba(0, 0, 0, 0.55),
-    0 0 0 1px rgba(255, 255, 255, 0.08);
-}
-
-.archiveLightboxSwatch {
-  width: 100%;
   display: block;
+  object-fit: cover;
+  border-radius: 12px;
+  box-shadow:
+    0 32px 64px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+  cursor: zoom-out;
+  -webkit-user-drag: none;
+  /* Transform driven by GSAP — reserve a layer to keep scaling smooth. */
+  will-change: transform;
 }
 
 .archiveLightboxClose {
-  position: absolute;
-  top: var(--space-3);
-  right: var(--space-3);
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + var(--space-4));
+  right: calc(env(safe-area-inset-right, 0px) + var(--space-4));
+  z-index: 121;
   width: 2.5rem;
   height: 2.5rem;
   border: none;
@@ -311,40 +365,31 @@
   place-items: center;
   font-size: 18px;
   line-height: 1;
-  /* Two-layer shadow: tight contact + soft halo, tuned for the dark
-   * blurred lightbox scrim so the chip reads as floating above the panel. */
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.35),
     0 8px 20px rgba(0, 0, 0, 0.45);
-  transition: transform 0.18s var(--ease-view-inset);
+  /* Hidden until --lightboxOpen lifts it in; matches grid pushback timing for a paired feel. */
+  opacity: 0;
+  transform: scale(0.85);
+  pointer-events: none;
+  transition:
+    opacity 320ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.archivePage--lightboxOpen .archiveLightboxClose {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
 }
 
 .archiveLightboxClose:active {
-  transform: scale(0.96);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .archiveLightboxClose,
-  .archiveLightboxClose:active {
-    transition: none;
-    transform: none;
-  }
+  transform: scale(0.94);
 }
 
 .archiveLightboxClose:focus-visible {
-  outline: 2px solid var(--text-strong);
+  outline: 2px solid rgba(255, 255, 255, 0.85);
   outline-offset: 2px;
-}
-
-.archiveLightboxCaption {
-  margin: 0;
-  padding: var(--space-4) var(--space-5);
-  font-size: var(--font-size-base);
-  line-height: var(--line-height-body-px);
-  font-weight: 400;
-  color: rgba(255, 255, 255, 0.55);
-  background: #0a0a0a;
-  text-wrap: pretty;
 }
 
 /* View Transitions API: black surface during cross-fade (pairs with runWithViewTransition in PortfolioApp). */
@@ -359,6 +404,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .archiveOverlay,
+  .archiveOverlay--entering,
+  .archiveOverlay--enterReady {
+    opacity: 1;
+    transition: none;
+  }
+
   .archivePageContent,
   .archivePage--exitBlur .archivePageContent {
     transition: none;
@@ -376,12 +428,44 @@
     opacity: 1;
   }
 
+  /* Elastic per-column lag is skipped under reduced motion (caller doesn't
+     init the lib); drop the GPU layer hint so we don't pay for a transform
+     we'll never apply. */
+  .archiveColumn {
+    will-change: auto;
+    transform: none !important;
+  }
+
+  .archiveCellImage {
+    opacity: 1;
+    transition: none;
+  }
+
   .archiveCell:hover {
     transform: none;
   }
 
-  .archiveLightbox {
-    backdrop-filter: none;
+  .archiveScroll,
+  .archivePage--lightboxOpen .archiveScroll {
+    transition: none;
+    transform: none;
+  }
+
+  .archiveBackDock,
+  .archivePage--lightboxOpen .archiveBackDock {
+    transition: none;
+    transform: none;
+  }
+
+  .archiveLightboxImage,
+  .archiveLightboxClose {
+    transition: none;
+    transform: none;
+  }
+
+  .archivePage--lightboxOpen .archiveLightboxClose {
+    opacity: 1;
+    transform: none;
   }
 
   .archiveBack--dock {
