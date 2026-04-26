@@ -950,7 +950,7 @@
   --rail-card-shadow-rest: var(--shadow-surface);
   --rail-card-shadow-hover: var(--shadow-surface-hover);
   /* Extra space between “swipe up for more” hint and cards only (cards stay flush to viewport bottom) */
-  --rail-hint-lift: 24px;
+  --rail-hint-lift: var(--space-6);
   --rail-hint-pad: var(--space-5) var(--space-8);
   /* Fully clear the strip below the fold (+ small buffer so nothing peeks) */
   --rail-hidden-shift: calc(
@@ -1038,14 +1038,14 @@
   overflow-y: visible;
   white-space: nowrap;
   scroll-snap-type: none;
-  scroll-padding-inline: calc(var(--rail-spacer) + var(--space-3));
+  scroll-padding-inline: calc(var(--info-side-pad) + var(--rail-inter-card-gap));
   overscroll-behavior-x: contain;
   touch-action: pan-x;
   -webkit-overflow-scrolling: touch;
   padding-bottom: 0;
   margin-bottom: 0;
   /* Top headroom keeps hover scale/shadow inside the horizontal scrollport. */
-  padding: var(--rail-hover-headroom) var(--space-6) var(--space-6) var(--space-5);
+  padding: var(--rail-hover-headroom) var(--info-side-pad) var(--space-6);
   box-sizing: border-box;
   scrollbar-width: none;
   -ms-overflow-style: none;

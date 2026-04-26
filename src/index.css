@@ -104,8 +104,6 @@
   --ease-rail-reveal: var(--ease-view-inset);
 
   /* Layout: full-bleed media + overlapping rail; hit strip avoids header/rail */
-  /* Horizontal margin at the start/end of the project slider (scroll-safe flex spacers) */
-  --rail-spacer: var(--space-6);
   --rail-thumb-h: clamp(10rem, 25vh, 18rem);
   --rail-hover-headroom: 4rem;
   /* Stage (info) + rail project covers — same corner radius */
