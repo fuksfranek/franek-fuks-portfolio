@@ -119,7 +119,7 @@
   /* Distance from viewport top to bottom edge of fixed header (safe area + bar) */
   --header-h: calc(env(safe-area-inset-top, 0px) + var(--header-bar-block-h));
   /* Horizontal gap between rail project cards; info layout uses the same for stage ↔ rail */
-  --rail-inter-card-gap: 4px;
+  --rail-inter-card-gap: var(--space-3);
   /* Full height from viewport bottom: rail track (hover headroom + thumb + bottom pad) + safe area */
   --rail-stack-h: calc(
     env(safe-area-inset-bottom) + var(--rail-hover-headroom) + var(--rail-thumb-h) + var(--space-6)
