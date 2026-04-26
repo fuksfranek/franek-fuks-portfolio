@@ -8,12 +8,12 @@ import {
   useState,
 } from 'react'
 import { Squircle } from '@squircle-js/react'
+import { ProjectInfoBody } from '../ProjectInfoBody'
 import { SquircleMediaStroke } from '../SquircleMediaStroke'
 import type { ArchiveItem } from '../data/archivePlaceholders'
 import { archiveItems } from '../data/archivePlaceholders'
 import type { ArchivePlainRect } from '../lib/archiveGeometry'
 import { preloadArchiveImages } from '../lib/archivePreload'
-import { initElasticGridScroll } from '../lib/elasticGridScroll'
 import '../ArchivePage.css'
 import '../ArchiveSheet.css'
 
@@ -52,6 +52,10 @@ function distributeIntoColumns(
 const ABOVE_FOLD_COUNT = 12
 const aboveFoldSrcs = archiveItems.slice(0, ABOVE_FOLD_COUNT).map((item) => item.src)
 const restSrcs = archiveItems.slice(ABOVE_FOLD_COUNT).map((item) => item.src)
+const ARCHIVE_RUBBER_MAX_PX = 44
+const ARCHIVE_RUBBER_WHEEL_MULTIPLIER = 0.24
+const ARCHIVE_RUBBER_TOUCH_MULTIPLIER = 0.22
+const ARCHIVE_RUBBER_RELEASE_MS = 520
 
 /* ─────────────────────────────────────────────────────────
  * ANIMATION STORYBOARD — archive sheet
@@ -121,13 +125,6 @@ const TIMING = {
   lightboxCloseEase: 'power2.in',
 } as const
 
-/** Tighter elastic lag for the in-sheet grid — half of the default profile so
-    the masonry feels "alive but composed", not bouncy. */
-const SHEET_GRID_LAG = {
-  baseLagSec: 0.005,
-  lagScaleSec: 0.012,
-} as const
-
 type SheetState = 'opening' | 'open' | 'closing'
 
 function computeLightboxRect(aspectW: number, aspectH: number): ArchivePlainRect {
@@ -163,8 +160,9 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
   const dialogRef = useRef<HTMLDialogElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const cellRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const introRef = useRef<HTMLElement>(null)
   const columnRefs = useRef<(HTMLDivElement | null)[]>([])
+  const cellRefs = useRef<(HTMLButtonElement | null)[]>([])
   const lightboxImgRef = useRef<HTMLImageElement | HTMLVideoElement | null>(null)
   const lightboxAnimRef = useRef<gsap.core.Timeline | null>(null)
   const closeTimerRef = useRef<number | null>(null)
@@ -174,6 +172,7 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
   const [dragOffset, setDragOffset] = useState(0)
   const [isSnappingBack, setIsSnappingBack] = useState(false)
   const snapBackTimerRef = useRef<number | null>(null)
+  const [revealedCellIndexes, setRevealedCellIndexes] = useState<Set<number>>(() => new Set())
   const [columnCount, setColumnCount] = useState<number>(() => {
     if (typeof window === 'undefined') return 2
     return window.matchMedia(COLUMN_COUNT_MQ).matches ? 3 : 2
@@ -196,11 +195,13 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
     velocity: 0,
   })
 
-  /* Reset the per-column ref bucket when layout reshapes. */
   const columns = useMemo(() => {
-    columnRefs.current = new Array(columnCount).fill(null)
     return distributeIntoColumns(archiveItems, columnCount)
   }, [columnCount])
+
+  useEffect(() => {
+    columnRefs.current = columnRefs.current.slice(0, columns.length)
+  }, [columns.length])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -211,11 +212,291 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
     return () => mq.removeEventListener('change', apply)
   }, [])
 
+  /* Drawer-only column parallax: side columns start flush at the top, then
+     travel a little slower as the drawer scrolls. */
+  useLayoutEffect(() => {
+    if (reducedMotion) return
+    const scrollEl = scrollRef.current
+    if (!scrollEl) return
+    const cols = columnRefs.current.filter((col): col is HTMLDivElement => col !== null)
+    if (cols.length < 2) return
+
+    let raf = 0
+
+    const clearTransforms = () => {
+      for (const col of cols) {
+        col.style.transform = ''
+      }
+    }
+
+    const write = () => {
+      raf = 0
+      const maxScroll = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight)
+      if (maxScroll <= 1) {
+        clearTransforms()
+        return
+      }
+
+      const progress = Math.min(1, Math.max(0, scrollEl.scrollTop / maxScroll))
+      const travel = Math.min(maxScroll * 0.08, window.innerWidth >= 900 ? 140 : 84)
+      const sideOffset = travel * progress
+      const lastIndex = cols.length - 1
+
+      cols.forEach((col, index) => {
+        const isSideColumn = cols.length === 2 || index === 0 || index === lastIndex
+        col.style.transform = isSideColumn
+          ? `translate3d(0, ${sideOffset.toFixed(2)}px, 0)`
+          : ''
+      })
+    }
+
+    const requestWrite = () => {
+      if (raf !== 0) return
+      raf = requestAnimationFrame(write)
+    }
+
+    const resizeObserver = new ResizeObserver(requestWrite)
+    resizeObserver.observe(scrollEl)
+    cols.forEach((col) => resizeObserver.observe(col))
+
+    scrollEl.addEventListener('scroll', requestWrite, { passive: true })
+    window.addEventListener('resize', requestWrite)
+    requestWrite()
+
+    return () => {
+      scrollEl.removeEventListener('scroll', requestWrite)
+      window.removeEventListener('resize', requestWrite)
+      resizeObserver.disconnect()
+      if (raf !== 0) cancelAnimationFrame(raf)
+      clearTransforms()
+    }
+  }, [columns, reducedMotion])
+
+  useLayoutEffect(() => {
+    const scrollEl = scrollRef.current
+    const introEl = introRef.current
+    if (!scrollEl || !introEl) return
+
+    let raf = 0
+    let current = 0
+    let target = 0
+
+    const clearIntroStyles = () => {
+      introEl.style.removeProperty('--archive-intro-opacity')
+      introEl.style.removeProperty('--archive-intro-scale')
+      introEl.style.removeProperty('--archive-intro-blur')
+    }
+
+    if (reducedMotion) {
+      clearIntroStyles()
+      return
+    }
+
+    const readTarget = () => {
+      const fadeDistance = Math.max(160, Math.min(360, introEl.offsetHeight * 0.48))
+      const progress = Math.min(1, Math.max(0, scrollEl.scrollTop / fadeDistance))
+      target = 1 - Math.pow(1 - progress, 3)
+    }
+
+    const write = () => {
+      current += (target - current) * 0.18
+      if (Math.abs(target - current) < 0.001) current = target
+
+      introEl.style.setProperty('--archive-intro-opacity', (1 - current).toFixed(3))
+      introEl.style.setProperty('--archive-intro-scale', (1 - current * 0.085).toFixed(4))
+      introEl.style.setProperty('--archive-intro-blur', `${(current * 10).toFixed(2)}px`)
+
+      if (current === target) {
+        raf = 0
+        return
+      }
+      raf = requestAnimationFrame(write)
+    }
+
+    const requestWrite = () => {
+      readTarget()
+      if (raf !== 0) return
+      raf = requestAnimationFrame(write)
+    }
+
+    const resizeObserver = new ResizeObserver(requestWrite)
+    resizeObserver.observe(scrollEl)
+    resizeObserver.observe(introEl)
+
+    scrollEl.addEventListener('scroll', requestWrite, { passive: true })
+    window.addEventListener('resize', requestWrite)
+    readTarget()
+    current = target
+    introEl.style.setProperty('--archive-intro-opacity', (1 - current).toFixed(3))
+    introEl.style.setProperty('--archive-intro-scale', (1 - current * 0.085).toFixed(4))
+    introEl.style.setProperty('--archive-intro-blur', `${(current * 10).toFixed(2)}px`)
+
+    return () => {
+      scrollEl.removeEventListener('scroll', requestWrite)
+      window.removeEventListener('resize', requestWrite)
+      resizeObserver.disconnect()
+      if (raf !== 0) cancelAnimationFrame(raf)
+      clearIntroStyles()
+    }
+  }, [reducedMotion])
+
   /* Warm cache for keyboard / direct-URL opens that bypass teaser hover. */
   useEffect(() => {
     preloadArchiveImages(aboveFoldSrcs, 'high')
     preloadArchiveImages(restSrcs, 'low')
   }, [])
+
+  useEffect(() => {
+    if (state !== 'open') return
+    const cells = cellRefs.current.filter((cell): cell is HTMLButtonElement => cell !== null)
+    if (cells.length === 0) return
+
+    const revealCell = (cell: HTMLButtonElement) => {
+      const rawIndex = cell.dataset.archiveIndex
+      if (rawIndex == null) return
+      const index = Number(rawIndex)
+      setRevealedCellIndexes((prev) => {
+        if (prev.has(index)) return prev
+        const next = new Set(prev)
+        next.add(index)
+        return next
+      })
+    }
+
+    if (reducedMotion || typeof IntersectionObserver === 'undefined') {
+      let cancelled = false
+      queueMicrotask(() => {
+        if (!cancelled) setRevealedCellIndexes(new Set(archiveItems.map((_, index) => index)))
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return
+          const cell = entry.target as HTMLButtonElement
+          revealCell(cell)
+          observer.unobserve(cell)
+        })
+      },
+      {
+        root: scrollRef.current,
+        rootMargin: '0px 0px -8% 0px',
+        threshold: 0.12,
+      },
+    )
+
+    cells.forEach((cell) => {
+      if (cell.classList.contains('archiveCell--revealed')) return
+      observer.observe(cell)
+    })
+
+    return () => observer.disconnect()
+  }, [columns, reducedMotion, state])
+
+  useEffect(() => {
+    if (reducedMotion) return
+    const scrollEl = scrollRef.current
+    if (!scrollEl) return
+
+    let resetTimer = 0
+    let clearTimer = 0
+    const touch = {
+      active: false,
+      startY: 0,
+      edge: '' as '' | 'top' | 'bottom',
+    }
+
+    const maxScrollTop = () => Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight)
+    const isAtTop = () => scrollEl.scrollTop <= 0
+    const isAtBottom = () => scrollEl.scrollTop >= maxScrollTop() - 1
+
+    const clearRubber = (clearEdgeAfterRelease = true) => {
+      scrollEl.style.setProperty('--archive-rubber-ms', `${ARCHIVE_RUBBER_RELEASE_MS}ms`)
+      scrollEl.style.setProperty('--archive-rubber-y', '0px')
+      scrollEl.style.setProperty('--archive-edge-glow', '0')
+      window.clearTimeout(clearTimer)
+
+      if (!clearEdgeAfterRelease) {
+        scrollEl.removeAttribute('data-archive-rubber-edge')
+        return
+      }
+
+      clearTimer = window.setTimeout(() => {
+        scrollEl.removeAttribute('data-archive-rubber-edge')
+      }, ARCHIVE_RUBBER_RELEASE_MS)
+    }
+
+    const setRubber = (pull: number, edge: 'top' | 'bottom', multiplier: number) => {
+      const rubberY = Math.sign(pull) * Math.min(ARCHIVE_RUBBER_MAX_PX, Math.abs(pull) * multiplier)
+      const intensity = Math.min(1, Math.abs(rubberY) / ARCHIVE_RUBBER_MAX_PX)
+
+      scrollEl.dataset.archiveRubberEdge = edge
+      scrollEl.style.setProperty('--archive-rubber-ms', '0ms')
+      scrollEl.style.setProperty('--archive-rubber-y', `${rubberY.toFixed(2)}px`)
+      scrollEl.style.setProperty('--archive-edge-glow', intensity.toFixed(3))
+
+      window.clearTimeout(resetTimer)
+      window.clearTimeout(clearTimer)
+      resetTimer = window.setTimeout(clearRubber, 110)
+    }
+
+    const onWheel = (event: WheelEvent) => {
+      const delta = event.deltaY
+      if (delta < 0 && isAtTop()) {
+        setRubber(-delta, 'top', ARCHIVE_RUBBER_WHEEL_MULTIPLIER)
+      } else if (delta > 0 && isAtBottom()) {
+        setRubber(-delta, 'bottom', ARCHIVE_RUBBER_WHEEL_MULTIPLIER)
+      }
+    }
+
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1) return
+      const y = event.touches[0]!.clientY
+      touch.active = false
+      touch.startY = y
+      touch.edge = isAtTop() ? 'top' : isAtBottom() ? 'bottom' : ''
+    }
+
+    const onTouchMove = (event: TouchEvent) => {
+      if (event.touches.length !== 1 || touch.edge === '') return
+      const y = event.touches[0]!.clientY
+      const dy = y - touch.startY
+      const pullingTop = touch.edge === 'top' && dy > 0 && isAtTop()
+      const pullingBottom = touch.edge === 'bottom' && dy < 0 && isAtBottom()
+      if (!pullingTop && !pullingBottom) return
+
+      touch.active = true
+      setRubber(dy, touch.edge, ARCHIVE_RUBBER_TOUCH_MULTIPLIER)
+    }
+
+    const onTouchEndOrCancel = () => {
+      if (!touch.active) return
+      touch.active = false
+      touch.edge = ''
+      clearRubber()
+    }
+
+    scrollEl.addEventListener('wheel', onWheel, { passive: true })
+    scrollEl.addEventListener('touchstart', onTouchStart, { passive: true })
+    scrollEl.addEventListener('touchmove', onTouchMove, { passive: true })
+    scrollEl.addEventListener('touchend', onTouchEndOrCancel, { passive: true })
+    scrollEl.addEventListener('touchcancel', onTouchEndOrCancel, { passive: true })
+
+    return () => {
+      scrollEl.removeEventListener('wheel', onWheel)
+      scrollEl.removeEventListener('touchstart', onTouchStart)
+      scrollEl.removeEventListener('touchmove', onTouchMove)
+      scrollEl.removeEventListener('touchend', onTouchEndOrCancel)
+      scrollEl.removeEventListener('touchcancel', onTouchEndOrCancel)
+      window.clearTimeout(resetTimer)
+      window.clearTimeout(clearTimer)
+      clearRubber(false)
+    }
+  }, [reducedMotion])
 
   /* ───── Mount + open ─────
      showModal() gives us focus trap, ESC, and ::backdrop — but we paint our own scrim
@@ -285,11 +566,23 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
           window.clearTimeout(closeTimerRef.current)
           closeTimerRef.current = null
         }
-        setState('open')
+        let cancelled = false
+        queueMicrotask(() => {
+          if (!cancelled) setState('open')
+        })
+        return () => {
+          cancelled = true
+        }
       }
       return
     }
-    startCloseAnimation()
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) startCloseAnimation()
+    })
+    return () => {
+      cancelled = true
+    }
   }, [open, state, startCloseAnimation])
 
   useEffect(
@@ -353,18 +646,6 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
     dlg.addEventListener('cancel', onCancel)
     return () => dlg.removeEventListener('cancel', onCancel)
   }, [onRequestClose])
-
-  /* ───── Elastic per-column lag (Codrops-style) ─────
-     Skipped under reduced motion. Re-init when column count changes so lag profile matches the new layout. */
-  useEffect(() => {
-    if (reducedMotion) return
-    const scrollEl = scrollRef.current
-    if (!scrollEl) return
-    const cols = columnRefs.current.filter((c): c is HTMLDivElement => c !== null)
-    if (cols.length === 0) return
-    const handle = initElasticGridScroll(scrollEl, cols, SHEET_GRID_LAG)
-    return () => handle.destroy()
-  }, [columnCount, reducedMotion])
 
   /* ───── Scroll-aware handle ─────
      Once content has scrolled, the handle yields touch to native scroll. */
@@ -757,14 +1038,31 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
         </button>
         <div className="archiveSheet__content">
           <div className="archiveScroll" ref={scrollRef} onScroll={onContentScroll}>
+            <section
+              ref={introRef}
+              className="archiveSheetIntro"
+              aria-labelledby="archive-sheet-intro-title"
+            >
+              <div className="archiveSheetIntro__copy">
+                <div className="projectInfoHead">
+                  <h2 id="archive-sheet-intro-title" className="projectInfoTitle">
+                    Welcome to the Archives
+                  </h2>
+                </div>
+                <ProjectInfoBody
+                  className="projectInfoBody"
+                  text="Archives is a place for all of the different comp-like experiments, components, UI interactions, or just sketches that are worth sharing."
+                />
+              </div>
+            </section>
             <div className="archiveMasonry" role="list">
               {columns.map((colCells, colIdx) => (
                 <div
                   key={colIdx}
-                  className="archiveColumn"
                   ref={(node) => {
                     columnRefs.current[colIdx] = node
                   }}
+                  className="archiveColumn"
                 >
                   {colCells.map(({ item, originalIndex: i }) => (
                     <button
@@ -774,7 +1072,12 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
                       ref={(node) => {
                         cellRefs.current[i] = node
                       }}
-                      className="archiveCell"
+                      className={`archiveCell ${
+                        revealedCellIndexes.has(i)
+                          ? 'archiveCell--revealed'
+                          : 'archiveCell--revealPending'
+                      }`}
+                      data-archive-index={i}
                       aria-label={`Open archive item ${i + 1}`}
                       onClick={() => openLightbox(item, i)}
                     >

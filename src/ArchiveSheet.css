@@ -112,7 +112,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 -16px 48px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-drawer);
   transform: translate3d(0, 100%, 0);
   transition:
     transform var(--sheet-open-ms) var(--sheet-ease-out-expo),
@@ -195,18 +195,19 @@
   top: 14px;
   right: 14px;
   z-index: 3;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.045);
+  background: #ffffff;
   color: rgba(0, 0, 0, 0.6);
   cursor: pointer;
   display: grid;
   place-items: center;
   backdrop-filter: blur(20px) saturate(1.6);
   -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  box-shadow: var(--shadow-ring-light);
   transform: scale(1);
   transition:
     background-color 200ms ease,
@@ -223,7 +224,7 @@
 }
 
 .archiveSheet__close:hover {
-  background: rgba(0, 0, 0, 0.09);
+  background: #ffffff;
   color: rgba(0, 0, 0, 0.86);
   transform: scale(1.06);
 }
@@ -255,6 +256,11 @@
    top padding gives the first row of cards breathing room from the rounded
    panel edge — as the user scrolls, cards slide cleanly under the handle pill. */
 .archiveSheet__content .archiveScroll {
+  --archive-edge-glow: 0;
+  --archive-rubber-ms: 0ms;
+  --archive-rubber-y: 0px;
+  position: relative;
+  isolation: isolate;
   padding:
     var(--sheet-pad)
     var(--sheet-pad)
@@ -271,28 +277,139 @@
   display: none; /* WebKit (Safari, Chrome) */
 }
 
+.archiveSheet__content .archiveScroll::before,
+.archiveSheet__content .archiveScroll::after {
+  content: '';
+  position: sticky;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: block;
+  height: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.archiveSheet__content .archiveScroll::before {
+  top: 0;
+  box-shadow: 0 24px 34px rgba(16, 22, 31, calc(var(--archive-edge-glow) * 0.08));
+}
+
+.archiveSheet__content .archiveScroll::after {
+  bottom: 0;
+  box-shadow: 0 -24px 34px rgba(16, 22, 31, calc(var(--archive-edge-glow) * 0.08));
+}
+
+.archiveSheet__content .archiveScroll[data-archive-rubber-edge='top']::before,
+.archiveSheet__content .archiveScroll[data-archive-rubber-edge='bottom']::after {
+  opacity: 1;
+}
+
+.archiveSheet__content .archiveScroll > .archiveMasonry {
+  transform: translate3d(0, var(--archive-rubber-y), 0);
+  transition: transform var(--archive-rubber-ms, 0ms) cubic-bezier(0.19, 1, 0.22, 1);
+  will-change: transform;
+}
+
+.archiveSheetIntro {
+  --archive-intro-opacity: 1;
+  --archive-intro-scale: 1;
+  --archive-intro-blur: 0px;
+  position: sticky;
+  top: var(--sheet-pad);
+  z-index: 0;
+  min-height: 50dvh;
+  display: grid;
+  align-items: center;
+  justify-items: center;
+  padding: calc(var(--sheet-pad) * 1.5) 0;
+  box-sizing: border-box;
+  transform: translate3d(0, var(--archive-rubber-y), 0);
+  transition: transform var(--archive-rubber-ms, 0ms) cubic-bezier(0.19, 1, 0.22, 1);
+  will-change: transform;
+  pointer-events: none;
+}
+
+.archiveSheetIntro__copy {
+  width: 100%;
+  max-width: calc((100% - var(--sheet-gap)) / 2);
+  text-align: center;
+  opacity: var(--archive-intro-opacity);
+  filter: blur(var(--archive-intro-blur));
+  transform: translateZ(0) scale(var(--archive-intro-scale));
+  transform-origin: 50% 18%;
+  will-change: transform, opacity, filter;
+}
+
+.archiveSheetIntro .projectInfoHead {
+  align-items: center;
+}
+
+.archiveSheetIntro .projectInfoTitle,
+.archiveSheetIntro .projectInfoBody {
+  max-width: none;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.archiveSheetIntro .projectInfoTitle {
+  text-wrap: balance;
+}
+
+.archiveSheetIntro .projectInfoBody {
+  text-wrap: pretty;
+}
+
+@media (min-width: 900px) {
+  .archiveSheetIntro__copy {
+    max-width: calc((100% - (2 * var(--sheet-gap))) / 3);
+  }
+}
+
 .archiveSheet__content .archiveMasonry,
 .archiveSheet__content .archiveColumn {
   gap: var(--sheet-gap);
 }
 
+.archiveSheet__content .archiveMasonry {
+  position: relative;
+  z-index: 1;
+  align-items: flex-start;
+}
+
+.archiveSheet__content .archiveColumn {
+  will-change: transform;
+}
+
 /* ───── Cards inside the drawer ─────
-   Sit flat on the white surface — no resting shadow. On hover (mouse only),
-   gently lift with a soft, slow shadow. */
+   Keep the grid items flat on the sheet surface while motion is being tuned. */
 .archiveSheet__content .archiveCell {
   box-shadow: none;
   transition:
-    opacity 220ms cubic-bezier(0.16, 1, 0.3, 1),
-    transform 320ms var(--sheet-ease-out-expo),
-    box-shadow 320ms var(--sheet-ease-out-expo);
+    opacity 420ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 520ms var(--sheet-ease-out-expo);
+}
+
+.archiveSheet__content .archiveCell--revealPending {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(0, 18px, 0) scale(0.975);
+}
+
+.archiveSheet__content .archiveCell--revealed {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate3d(0, 0, 0) scale(1);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .archiveSheet__content .archiveCell:hover {
+  .archiveSheet__content .archiveCell--revealed:hover {
     transform: translateY(-2px);
-    box-shadow:
-      0 1px 2px rgba(16, 22, 31, 0.04),
-      0 12px 28px rgba(16, 22, 31, 0.08);
+    transition:
+      transform 180ms var(--ease-view-inset),
+      opacity 180ms ease;
+    box-shadow: none;
   }
 }
 
@@ -391,8 +508,8 @@ html.sheet-snapping .shell--pushed-by-sheet {
   z-index: 6;
   border-radius: 14px;
   box-shadow:
-    0 24px 64px rgba(0, 0, 0, 0.6),
-    0 0 0 1px rgba(255, 255, 255, 0.04);
+    var(--shadow-dark-surface-hover),
+    var(--shadow-ring-on-dark);
 }
 
 /* ───── Lightbox close button — dark-canvas pill ─────
@@ -494,5 +611,31 @@ html.sheet-snapping .shell--pushed-by-sheet {
   .archiveSheet[data-lightbox='true'] .archiveLightboxClose {
     transition: opacity 150ms ease;
     transform: none;
+  }
+
+  .archiveSheet__content .archiveCell,
+  .archiveSheet__content .archiveCell--revealPending,
+  .archiveSheet__content .archiveCell--revealed {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .archiveSheet__content .archiveScroll > .archiveSheetIntro,
+  .archiveSheet__content .archiveScroll > .archiveMasonry {
+    transform: none;
+    transition: none;
+  }
+
+  .archiveSheetIntro {
+    position: static;
+    will-change: auto;
+  }
+
+  .archiveSheetIntro__copy {
+    opacity: 1;
+    filter: none;
+    transform: none;
+    will-change: auto;
   }
 }

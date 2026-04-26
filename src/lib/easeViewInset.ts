@@ -1,5 +1,5 @@
 /**
- * Matches CSS `var(--ease-view-inset)` / `cubic-bezier(0.215, 0.61, 0.355, 1)` (index.css).
+ * Matches CSS `var(--ease-view-inset)` / `cubic-bezier(0.16, 0.84, 0.32, 1)` (index.css).
  * Use as GSAP `ease` (function), not a string, so motion pairs with shell / overlay CSS transitions.
  */
 
@@ -29,5 +29,5 @@ function cssBezierYAtT(t: number, x1: number, y1: number, x2: number, y2: number
 
 /** GSAP ease: same curve as PortfolioApp `easeViewInsetY` + shell/archive CSS */
 export function easeViewInset(t: number): number {
-  return cssBezierYAtT(t, 0.215, 0.61, 0.355, 1)
+  return cssBezierYAtT(t, 0.16, 0.84, 0.32, 1)
 }

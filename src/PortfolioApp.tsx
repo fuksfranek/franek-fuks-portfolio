@@ -10,97 +10,27 @@ import {
   useState,
   type Ref,
 } from 'react'
-import { createPortal, flushSync } from 'react-dom'
+import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { BlossomCarousel, type BlossomCarouselHandle } from '@blossom-carousel/react'
 import type { Media } from './data/projects'
-import { defaultProjectCategory, defaultProjectDescription, projects } from './data/projects'
+import { defaultProjectDescription, projects } from './data/projects'
 import { ProjectInfoBody } from './ProjectInfoBody'
 import { SquircleMediaStroke } from './SquircleMediaStroke'
 import gsap from 'gsap'
 import { Squircle } from '@squircle-js/react'
-import { ArchiveOverlay } from './components/ArchiveOverlay'
 import { ArchiveSheet } from './components/ArchiveSheet'
 import { ArchiveTeaser } from './components/ArchiveTeaser'
 import { easeViewInset } from './lib/easeViewInset'
-import { runWithViewTransition } from './lib/viewTransition'
 import type { StageChromeTone } from './lib/stageChromeSampling'
-import { sampleStageChromeTone } from './lib/stageChromeSampling'
+import { relativeLuminance, sampleStageChromeTone } from './lib/stageChromeSampling'
+import '@blossom-carousel/core/style.css'
 import './App.css'
-
-const USE_COLOR_MEDIA_PLACEHOLDERS = false
-
-/**
- * Experiment toggle: render the archive as an iOS-style bottom sheet drawer instead of
- * the full-page FLIP-flight overlay. Flip back to `false` to restore the original
- * overlay behavior (entry rects / view-transition / shell--under-archive fade).
- */
-const USE_ARCHIVE_SHEET = true
 
 /** Matches `--project-media-radius` in index.css */
 const PROJECT_MEDIA_RADIUS = 20
-/** Matches `.cardLabelDot` / `.railDotAnchor` in App.css */
-const RAIL_DOT_SIZE_PX = 10
-const RAIL_DOT_JUMP_MS = 240
-
-/**
- * Dot is `position:absolute` on `.railTrack` (inside the horizontal scroll content), so it moves
- * with the strip when `.rail` scrolls — no scroll listeners. Origin = track padding edge.
- */
-function computeRailDotTranslate(track: HTMLDivElement, anchor: HTMLElement) {
-  const trackRect = track.getBoundingClientRect()
-  const ox = trackRect.left + track.clientLeft
-  const oy = trackRect.top + track.clientTop
-  const anchorRect = anchor.getBoundingClientRect()
-  const cx = anchorRect.left + anchorRect.width / 2 - ox
-  const cy = anchorRect.top + anchorRect.height / 2 - oy
-  return { x: cx - RAIL_DOT_SIZE_PX / 2, y: cy - RAIL_DOT_SIZE_PX / 2 }
-}
-
-function getRailDotTranslateFromVisual(track: HTMLDivElement, dot: HTMLElement) {
-  const trackRect = track.getBoundingClientRect()
-  const ox = trackRect.left + track.clientLeft
-  const oy = trackRect.top + track.clientTop
-  const dotRect = dot.getBoundingClientRect()
-  return {
-    x: dotRect.left - ox,
-    y: dotRect.top - oy,
-  }
-}
-
-function buildRailDotJumpKeyframes(
-  start: { x: number; y: number },
-  end: { x: number; y: number },
-  steps: number,
-) {
-  const cx = (start.x + end.x) / 2
-  const dx = Math.abs(end.x - start.x)
-  /* Nearly straight path — tiny lift so motion reads as glide, not a bounce */
-  const arcH = Math.min(36, dx * 0.08 + 8)
-  const cy = Math.min(start.y, end.y) - arcH
-  const keyframes: { transform: string }[] = []
-  for (let i = 0; i <= steps; i += 1) {
-    const t = i / steps
-    const x = (1 - t) * (1 - t) * start.x + 2 * (1 - t) * t * cx + t * t * end.x
-    const y = (1 - t) * (1 - t) * start.y + 2 * (1 - t) * t * cy + t * t * end.y
-    keyframes.push({ transform: `translate(${x}px, ${y}px)` })
-  }
-  return keyframes
-}
 /** Matches `--duration-stage-info` — stage squircle + info layout only */
-const VIEW_RESIZE_MS = 240
-/** Matches `animation-delay: stagger * (--duration-stage-info / 10)` on `.card[data-rail-enter='on']` */
-const RAIL_STAGGER_TIME_DIVISOR = 10
-/** Matches `--duration-rail-card-enter` in index.css */
-const RAIL_CARD_ENTER_MS = 280
-
-function hashString(value: string) {
-  let hash = 0
-  for (let i = 0; i < value.length; i += 1) {
-    hash = (hash << 5) - hash + value.charCodeAt(i)
-    hash |= 0
-  }
-  return Math.abs(hash)
-}
+const VIEW_RESIZE_MS = 320
 
 /** Prefer `\n\n` in copy; otherwise split after first “. ”; never force a mid-paragraph break */
 function splitProjectDescription(raw: string): [string, string] {
@@ -119,14 +49,69 @@ function splitProjectDescription(raw: string): [string, string] {
   return [t, '']
 }
 
-function mediaPlaceholderColor(media: Media) {
-  const key =
-    media.kind === 'video' ? `video:${media.src}:${media.poster ?? ''}` : `image:${media.src}:${media.alt}`
-  const hash = hashString(key)
-  const hue = hash % 360
-  const saturation = 58 + (hash % 18)
-  const lightness = 46 + ((hash >> 3) % 18)
-  return `hsl(${hue} ${saturation}% ${lightness}%)`
+function stageMediaMode(media: Media) {
+  return media.presentation?.mode === 'framed' ? 'framed' : 'fill'
+}
+
+function stageMediaFit(media: Media): 'cover' | 'contain' {
+  const presentation = media.presentation
+  if (presentation?.mode === 'framed') return presentation.mediaFit ?? 'contain'
+  return 'cover'
+}
+
+function stageObjectPosition(media: Media) {
+  return media.presentation?.objectPosition ?? 'center'
+}
+
+function backgroundUrl(src: string) {
+  return `url("${src.replace(/"/g, '\\"')}")`
+}
+
+function stageLayerStyle(media: Media): React.CSSProperties | undefined {
+  const presentation = media.presentation
+  if (presentation?.mode !== 'framed') return undefined
+
+  const style: React.CSSProperties & Record<string, string> = {
+    '--stage-framed-padding': presentation.padding ?? 'clamp(2rem, 7vw, 6.5rem)',
+    '--stage-framed-bg': '#f4f0ea',
+    '--stage-framed-bg-size': 'cover',
+    '--stage-framed-bg-position': 'center',
+  }
+
+  const background = presentation.background
+  if (background?.kind === 'color') {
+    style['--stage-framed-bg'] = background.value
+  } else if (background?.kind === 'image') {
+    style['--stage-framed-bg'] = backgroundUrl(background.src)
+    style['--stage-framed-bg-size'] = background.fit ?? 'cover'
+    style['--stage-framed-bg-position'] = background.position ?? 'center'
+  }
+
+  return style
+}
+
+function toneFromHexColor(value: string): StageChromeTone | null {
+  const hex = value.trim().replace(/^#/, '')
+  const full =
+    hex.length === 3
+      ? hex
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : hex
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return null
+  const r = Number.parseInt(full.slice(0, 2), 16)
+  const g = Number.parseInt(full.slice(2, 4), 16)
+  const b = Number.parseInt(full.slice(4, 6), 16)
+  return relativeLuminance(r, g, b) >= 0.56 ? 'onLight' : 'onDark'
+}
+
+function stageToneFromPresentation(media: Media): StageChromeTone | null {
+  const presentation = media.presentation
+  if (presentation?.mode !== 'framed') return null
+  const background = presentation.background
+  if (background?.kind !== 'color') return null
+  return toneFromHexColor(background.value)
 }
 
 /**
@@ -164,33 +149,27 @@ function loadVideoAsBlobUrl(src: string): Promise<string> {
 
 /** Resolves to a stable blob URL for the video; falls back to direct src on fetch failure. */
 function useResolvedVideoSrc(src: string, enabled: boolean): string | undefined {
-  const [resolved, setResolved] = useState<string | undefined>(() =>
-    enabled ? videoBlobCache.get(src) : undefined,
-  )
+  const [resolved, setResolved] = useState<{ src: string; url: string } | null>(() => {
+    const cached = enabled ? videoBlobCache.get(src) : undefined
+    return cached ? { src, url: cached } : null
+  })
   useEffect(() => {
-    if (!enabled) {
-      setResolved(undefined)
-      return
-    }
+    if (!enabled) return
     const cached = videoBlobCache.get(src)
-    if (cached) {
-      setResolved(cached)
-      return
-    }
     let cancelled = false
-    setResolved(undefined)
-    loadVideoAsBlobUrl(src)
+    const load = cached ? Promise.resolve(cached) : loadVideoAsBlobUrl(src)
+    load
       .then((url) => {
-        if (!cancelled) setResolved(url)
+        if (!cancelled) setResolved({ src, url })
       })
       .catch(() => {
-        if (!cancelled) setResolved(src)
+        if (!cancelled) setResolved({ src, url: src })
       })
     return () => {
       cancelled = true
     }
   }, [src, enabled])
-  return resolved
+  return enabled && resolved?.src === src ? resolved.url : undefined
 }
 
 const MediaView = forwardRef<
@@ -209,10 +188,6 @@ const MediaView = forwardRef<
   /* Hook must run unconditionally; result is only consumed for full-variant videos. */
   const isFullVideo = media.kind === 'video' && variant === 'full'
   const blobSrc = useResolvedVideoSrc(media.kind === 'video' ? media.src : '', isFullVideo)
-
-  if (USE_COLOR_MEDIA_PLACEHOLDERS) {
-    return <div className={className} style={{ background: mediaPlaceholderColor(media) }} aria-hidden />
-  }
 
   if (media.kind === 'video') {
     if (variant === 'thumb' && media.poster) {
@@ -280,7 +255,8 @@ const MediaView = forwardRef<
  * ───────────────────────────────────────────────────────── */
 
 function mediaIdentity(media: Media): string {
-  return media.kind === 'video' ? `v:${media.src}` : `i:${media.src}`
+  const presentation = media.presentation ? JSON.stringify(media.presentation) : ''
+  return media.kind === 'video' ? `v:${media.src}:${presentation}` : `i:${media.src}:${presentation}`
 }
 
 type SlotId = 'A' | 'B'
@@ -289,12 +265,11 @@ const GalleryStageSlot = forwardRef<
   HTMLImageElement | HTMLVideoElement | null,
   {
     media: Media | null
-    fit: 'cover' | 'contain'
     loop: boolean
     isFront: boolean
     onReady: () => void
   }
->(function GalleryStageSlot({ media, fit, loop, isFront, onReady }, ref) {
+>(function GalleryStageSlot({ media, loop, isFront, onReady }, ref) {
   /* Hook order is stable; arg is the empty string when not a video, which the
      hook treats as "disabled" via the `enabled` flag. */
   const isVideo = media?.kind === 'video'
@@ -331,60 +306,117 @@ const GalleryStageSlot = forwardRef<
 
   if (!media) return null
 
-  const className = `galleryStageLayer galleryStageLayer--${isFront ? 'front' : 'back'}`
+  const mode = stageMediaMode(media)
+  const fit = stageMediaFit(media)
+  const objectPosition = stageObjectPosition(media)
+  const shadow = media.presentation?.mode === 'framed' ? (media.presentation.shadow ?? 'soft') : 'none'
+  const className = [
+    'galleryStageLayer',
+    `galleryStageLayer--${isFront ? 'front' : 'back'}`,
+    `galleryStageLayer--${mode}`,
+    shadow === 'soft' ? 'galleryStageLayer--shadowSoft' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+  const mediaClassName = `galleryStageMedia galleryStageMedia--${mode}`
+  const layerStyle = stageLayerStyle(media)
 
-  if (USE_COLOR_MEDIA_PLACEHOLDERS) {
-    return (
-      <div
-        className={className}
-        style={{ background: mediaPlaceholderColor(media) }}
-        aria-hidden
-      />
-    )
-  }
+  const mediaStyle = { objectFit: fit, objectPosition }
 
   if (media.kind === 'video') {
     return (
-      <video
-        ref={setRefs as Ref<HTMLVideoElement>}
-        className={className}
-        src={blobSrc}
-        poster={media.poster}
-        muted
-        playsInline
-        loop={loop}
-        autoPlay={isFront}
-        preload="auto"
-        controls={false}
-        style={{ objectFit: fit }}
-        onLoadedData={onReady}
-      />
+      <div className={className} style={layerStyle}>
+        {mode === 'framed' ? <span className="galleryStageLayerBackground" aria-hidden /> : null}
+        {mode === 'framed' ? (
+          <span className="galleryStageFrameShell">
+            <Squircle
+              cornerRadius={PROJECT_MEDIA_RADIUS}
+              cornerSmoothing={1}
+              className="galleryStageFrame"
+            >
+              <video
+                ref={setRefs as Ref<HTMLVideoElement>}
+                className={mediaClassName}
+                src={blobSrc}
+                poster={media.poster}
+                muted
+                playsInline
+                loop={loop}
+                autoPlay={isFront}
+                preload="auto"
+                controls={false}
+                style={mediaStyle}
+                onLoadedData={onReady}
+              />
+              <SquircleMediaStroke cornerRadius={PROJECT_MEDIA_RADIUS} cornerSmoothing={1} />
+            </Squircle>
+          </span>
+        ) : (
+          <video
+            ref={setRefs as Ref<HTMLVideoElement>}
+            className={mediaClassName}
+            src={blobSrc}
+            poster={media.poster}
+            muted
+            playsInline
+            loop={loop}
+            autoPlay={isFront}
+            preload="auto"
+            controls={false}
+            style={mediaStyle}
+            onLoadedData={onReady}
+          />
+        )}
+      </div>
     )
   }
 
   return (
-    <img
-      ref={setRefs as Ref<HTMLImageElement>}
-      className={className}
-      src={media.src}
-      alt={media.alt}
-      draggable={false}
-      decoding="async"
-      style={{ objectFit: fit }}
-      onLoad={onReady}
-    />
+    <div className={className} style={layerStyle}>
+      {mode === 'framed' ? <span className="galleryStageLayerBackground" aria-hidden /> : null}
+      {mode === 'framed' ? (
+        <span className="galleryStageFrameShell">
+          <Squircle
+            cornerRadius={PROJECT_MEDIA_RADIUS}
+            cornerSmoothing={1}
+            className="galleryStageFrame"
+          >
+            <img
+              ref={setRefs as Ref<HTMLImageElement>}
+              className={mediaClassName}
+              src={media.src}
+              alt={media.alt}
+              draggable={false}
+              decoding="async"
+              style={mediaStyle}
+              onLoad={onReady}
+            />
+            <SquircleMediaStroke cornerRadius={PROJECT_MEDIA_RADIUS} cornerSmoothing={1} />
+          </Squircle>
+        </span>
+      ) : (
+        <img
+          ref={setRefs as Ref<HTMLImageElement>}
+          className={mediaClassName}
+          src={media.src}
+          alt={media.alt}
+          draggable={false}
+          decoding="async"
+          style={mediaStyle}
+          onLoad={onReady}
+        />
+      )}
+    </div>
   )
 })
 
 const GalleryStage = function GalleryStage({
   media,
-  fit,
   loop = true,
   onActiveElement,
   onMediaDecoded,
 }: {
   media: Media
-  fit: 'cover' | 'contain'
   loop?: boolean
   onActiveElement?: (el: HTMLImageElement | HTMLVideoElement | null) => void
   onMediaDecoded?: () => void
@@ -418,16 +450,22 @@ const GalleryStage = function GalleryStage({
 
     const reqId = ++reqIdRef.current
     const target: SlotId = front === 'A' ? 'B' : 'A'
-
-    if (target === 'A') setSlotA(media)
-    else setSlotB(media)
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      if (target === 'A') setSlotA(media)
+      else setSlotB(media)
+    })
 
     /* Videos promote when the slot's <video> fires `loadeddata`
        (handleSlotReady). Stills are pre-decoded off-DOM so the in-DOM
        element paints immediately when its opacity rises. */
-    if (media.kind !== 'image') return
+    if (media.kind !== 'image') {
+      return () => {
+        cancelled = true
+      }
+    }
 
-    let cancelled = false
     const promote = () => {
       if (cancelled || reqId !== reqIdRef.current) return
       if (promotedReqIdRef.current >= reqId) return
@@ -476,7 +514,6 @@ const GalleryStage = function GalleryStage({
       <GalleryStageSlot
         ref={slotAElRef}
         media={slotA}
-        fit={fit}
         loop={loop}
         isFront={front === 'A'}
         onReady={() => handleSlotReady('A')}
@@ -484,7 +521,6 @@ const GalleryStage = function GalleryStage({
       <GalleryStageSlot
         ref={slotBElRef}
         media={slotB}
-        fit={fit}
         loop={loop}
         isFront={front === 'B'}
         onReady={() => handleSlotReady('B')}
@@ -553,35 +589,9 @@ function touchEndVerticalIsPanelScrollNotClose(
 const RAIL_WHEEL_X_MIN = 1.5
 const RAIL_HORIZONTAL_RATIO = 0.65
 const VERTICAL_INTENT_RATIO = 1.12
-const DRAG_CLICK_SUPPRESS_MS = 220
-const DRAG_START_PX = 8
-/** px/ms; release below this uses no inertial scroll */
-const RAIL_MOMENTUM_MIN_VELOCITY = 0.028
-/** No velocity boost — avoids coasting that reads as a second “bounce” */
-const RAIL_MOMENTUM_BOOST = 1
-/** Per ~16ms frame; used with delta-time for frame-rate independence */
-const RAIL_MOMENTUM_FRICTION = 0.91
-/** EMA blend for pointer velocity samples */
-const RAIL_VELOCITY_SMOOTH = 0.55
-const RAIL_MOMENTUM_STOP = 0.012
-/** Extra space between cards at max intensity (px); smaller = less scroll/layout feedback */
-const RAIL_GAP_MAX_EXTRA_PX = 3
-/** |scroll speed| (px/ms) that reaches ~full extra gap */
-const RAIL_GAP_SPEED_REF = 1.05
-/** Wheel delta magnitude (px) treated as a strong horizontal intent */
-const RAIL_GAP_WHEEL_REF = 92
-/** Blend toward measured speed each scroll sample */
-const RAIL_GAP_SMOOTH = 0.42
-/** Decay while intensity is moderate–high (after input stops) */
-const RAIL_GAP_DECAY = 0.8
-/** Faster decay for the last bit so the strip does not “creep” closed */
-const RAIL_GAP_DECAY_TAIL = 0.66
-/** Below this normalized intensity, snap gap closed (avoids long tail + jitter) */
-const RAIL_GAP_SNAP = 0.058
-/** Wait this long after last feed before decaying */
-const RAIL_GAP_IDLE_MS = 18
-/** Cap insane single-sample speeds from scroll bursts */
-const RAIL_GAP_SPEED_CAP = 5.2
+const RAIL_RUBBER_MAX_PX = 88
+const RAIL_RUBBER_PULL_MULTIPLIER = 2.8
+const RAIL_RUBBER_RELEASE_MS = 680
 const STORY_DURATION_MS = 4200
 const CURSOR_IDLE_MS = 1300
 const CURSOR_HIDE_DISTANCE = 68
@@ -591,9 +601,7 @@ const CURSOR_HIDE_DISTANCE = 68
  *
  *      0ms   stage shows project asset; story meter cycles ~STORY_DURATION_MS
  *    220ms   info panel blocks + about lead ease in (GSAP)
- *    240ms   squircle radius + info layout + rail reveal (VIEW_RESIZE_MS)
- *    280ms   rail cards finish rise-in (RAIL_CARD_ENTER_MS)
- *    300ms   floating dot arc between thumbs (RAIL_DOT_JUMP_MS)
+ *    320ms   squircle radius + info layout settle together (VIEW_RESIZE_MS)
  *
  * About overlay:
  *      0ms   FLIP: mark translates + scales from header `.identity` (ease-out, GPU)
@@ -609,8 +617,6 @@ const TIMING = {
   /** Bio starts slightly before mark fully settles — reads as one gesture */
   aboutMarkLeadOverlapMs: 140,
   stageInfoMs: VIEW_RESIZE_MS,
-  railCardEnterMs: RAIL_CARD_ENTER_MS,
-  railDotJumpMs: RAIL_DOT_JUMP_MS,
   storyAdvanceMs: STORY_DURATION_MS,
 } as const
 
@@ -625,12 +631,6 @@ type ViewAction =
   | { type: 'prevProject' }
   | { type: 'nextProject' }
   | { type: 'selectProject'; index: number }
-
-type RailStaggerState = {
-  ready: boolean
-  stagger: number[]
-  visible: boolean[]
-}
 
 type CursorZone = 'none' | 'stage' | 'rail'
 type CursorDirection = 'left' | 'right' | 'drag'
@@ -700,12 +700,6 @@ function pointToRectDistance(x: number, y: number, rect: DOMRect) {
   return Math.hypot(dx, dy)
 }
 
-type PlainTeaserRect = { top: number; left: number; width: number; height: number }
-
-function serializeTeaserRects(rects: DOMRect[]): PlainTeaserRect[] {
-  return rects.map((r) => ({ top: r.top, left: r.left, width: r.width, height: r.height }))
-}
-
 export default function PortfolioApp() {
   const [{ projectIndex, assetIndex }, dispatch] = useReducer(viewReducer, {
     projectIndex: 0,
@@ -713,12 +707,6 @@ export default function PortfolioApp() {
   })
   const [isInfoOpen, setIsInfoOpen] = useState(false)
   const [isAboutOpen, setIsAboutOpen] = useState(false)
-  const [railStagger, setRailStagger] = useState<RailStaggerState>({
-    ready: false,
-    stagger: [],
-    visible: [],
-  })
-  const [isRailDragging, setIsRailDragging] = useState(false)
   const [isCursorPressed, setIsCursorPressed] = useState(false)
   const [cursorUi, setCursorUi] = useState<CursorUiState>({
     zone: 'none',
@@ -738,39 +726,6 @@ export default function PortfolioApp() {
     proximityHidden: false,
   })
   const cursorIdleTimer = useRef<number | null>(null)
-  const railDrag = useRef({
-    active: false,
-    pointerId: -1,
-    startX: 0,
-    startScrollLeft: 0,
-    moved: false,
-    lastClientX: 0,
-    lastTime: 0,
-    /** Smoothed d(scrollLeft)/dt in px/ms */
-    velocity: 0,
-  })
-  const railMomentumRaf = useRef<number | null>(null)
-  const railTrackRef = useRef<HTMLDivElement>(null)
-  const railGapSmoothedRef = useRef(0)
-  const railGapRafRef = useRef<number | null>(null)
-  const railGapLastFeedRef = useRef(0)
-  const railScrollSampleRef = useRef({
-    lastLeft: 0,
-    lastT: 0,
-    /** Detect scrollWidth shrink when gap CSS relaxes (ignore clamp-only deltas) */
-    lastScrollWidth: 0,
-  })
-  const lastRailDragAt = useRef(0)
-  const cardRefs = useRef<(HTMLButtonElement | null)[]>([])
-  const railDotAnchorRefs = useRef<(HTMLSpanElement | null)[]>([])
-  const railFloatingDotRef = useRef<HTMLDivElement | null>(null)
-  const railDotAnimRef = useRef<Animation | null>(null)
-  const railDotAnimLockRef = useRef(false)
-  /** Last project index after a completed dot move; only updated in onFinish / instant paths — not mid-animation (fixes Strict Mode + off-screen cards). */
-  const railDotCommittedProjectIndexRef = useRef(projectIndex)
-  const [railDotTranslate, setRailDotTranslate] = useState({ x: 0, y: 0 })
-  /** When true, WAAPI owns transform — don't apply React inline translate */
-  const [railDotAnimating, setRailDotAnimating] = useState(false)
   const stageWrapRef = useRef<HTMLElement>(null)
   /** Mirrors `GalleryStage`'s currently-on-screen element. Updated via the
       `onActiveElement` callback whenever the front slot promotes; the bumped
@@ -784,16 +739,12 @@ export default function PortfolioApp() {
   const stageHitRef = useRef<HTMLDivElement>(null)
   const projectInfoPanelRef = useRef<HTMLElement | null>(null)
   const railWrapRef = useRef<HTMLElement>(null)
-  const railRef = useRef<HTMLDivElement>(null)
+  const railCarouselRef = useRef<BlossomCarouselHandle>(null)
   const aboutCloseCursorRef = useRef<HTMLDivElement | null>(null)
   const shellRef = useRef<HTMLDivElement>(null)
   const stageCornerRadiusRef = useRef(0)
   const stageCornerRafRef = useRef<number | null>(null)
   const [stageCornerRadius, setStageCornerRadius] = useState(0)
-  const [archiveEntryRects, setArchiveEntryRects] = useState<PlainTeaserRect[] | null>(null)
-
-  /* Sheet experiment: keep mounted across the close animation so the slide-down can play.
-     `shellSheetState` mirrors the lifecycle so .shell pushback transitions in/out in sync. */
   const [archiveSheetMounted, setArchiveSheetMounted] = useState(false)
   const [shellSheetState, setShellSheetState] = useState<'idle' | 'pushed' | 'recovering'>('idle')
 
@@ -801,77 +752,37 @@ export default function PortfolioApp() {
   const location = useLocation()
   const archiveOpen = location.hash === '#archive'
 
-  const closeArchive = useCallback(() => {
-    if (USE_ARCHIVE_SHEET) {
-      navigate({ pathname: '/', hash: '' }, { replace: true })
-      return
-    }
-    runWithViewTransition(() => {
-      flushSync(() => {
-        navigate({ pathname: '/', hash: '' }, { replace: true })
-        setArchiveEntryRects(null)
-      })
-      const sh = shellRef.current
-      sh?.style.removeProperty('--archive-shell-reveal-ms')
-      sh?.classList.remove('shell--under-archive', 'shell--archive-revealing')
-    })
+  const transitionToArchive = useCallback(() => {
+    navigate({ pathname: '/', hash: 'archive' }, { replace: false })
   }, [navigate])
-
-  const startArchiveShellReveal = useCallback((motionDurationMs: number) => {
-    const sh = shellRef.current
-    if (!sh) return
-    sh.style.setProperty('--archive-shell-reveal-ms', `${motionDurationMs}ms`)
-    sh.classList.add('shell--archive-revealing')
-  }, [])
-
-  const transitionToArchive = useCallback(
-    (cardRects: DOMRect[]) => {
-      if (USE_ARCHIVE_SHEET) {
-        /* Sheet plays its own slide-up; no view-transition / FLIP entry rects needed. */
-        navigate({ pathname: '/', hash: 'archive' }, { replace: false })
-        return
-      }
-      const plain = serializeTeaserRects(cardRects)
-      runWithViewTransition(() => {
-        flushSync(() => {
-          setArchiveEntryRects(plain)
-          navigate({ pathname: '/', hash: 'archive' }, { replace: false })
-        })
-      })
-    },
-    [navigate],
-  )
-
-  useLayoutEffect(() => {
-    if (USE_ARCHIVE_SHEET) return
-    const sh = shellRef.current
-    if (!sh || !archiveOpen) return
-    sh.classList.add('shell--under-archive')
-  }, [archiveOpen])
-
-  useEffect(() => {
-    if (USE_ARCHIVE_SHEET) return
-    if (location.hash === '#archive') return
-    startTransition(() => {
-      setArchiveEntryRects(null)
-    })
-    const sh = shellRef.current
-    sh?.style.removeProperty('--archive-shell-reveal-ms')
-    sh?.classList.remove('shell--under-archive', 'shell--archive-revealing')
-  }, [location.hash])
 
   /* ───── Sheet lifecycle ─────
      Open: mount sheet + push shell back in the same frame (paired).
      Close: shell starts recovering immediately as sheet starts sliding down. */
   useEffect(() => {
-    if (!USE_ARCHIVE_SHEET) return
-    if (archiveOpen) {
-      setArchiveSheetMounted(true)
-      setShellSheetState('pushed')
-    } else if (shellSheetState === 'pushed') {
-      setShellSheetState('recovering')
+    let cancelled = false
+    const apply = () => {
+      if (cancelled) return
+      if (archiveOpen) {
+        setArchiveSheetMounted(true)
+        setShellSheetState('pushed')
+      } else if (shellSheetState === 'pushed') {
+        setShellSheetState('recovering')
+      }
+    }
+    queueMicrotask(apply)
+    return () => {
+      cancelled = true
     }
   }, [archiveOpen, shellSheetState])
+
+  useEffect(() => {
+    if (archiveOpen) {
+      return
+    }
+    document.documentElement.classList.remove('sheet-peeking', 'sheet-snapping')
+    document.documentElement.style.removeProperty('--sheet-drag-progress')
+  }, [archiveOpen])
 
   const handleSheetRequestClose = useCallback(() => {
     /* Flip shell into recovery in the SAME React batch as navigate. The
@@ -894,14 +805,18 @@ export default function PortfolioApp() {
   const canStep = gallery.length > 1
 
   const runChromeSample = useCallback(() => {
-    if (USE_COLOR_MEDIA_PLACEHOLDERS) return
+    const presentationTone = stageToneFromPresentation(asset)
+    if (presentationTone) {
+      setStageChromeTone((prev) => (prev === presentationTone ? prev : presentationTone))
+      return
+    }
     const el = stageMediaRef.current
     if (!el) return
     const next = sampleStageChromeTone(el)
     if (next) {
       setStageChromeTone((prev) => (prev === next ? prev : next))
     }
-  }, [])
+  }, [asset])
 
   const handleActiveStageMedia = useCallback(
     (el: HTMLImageElement | HTMLVideoElement | null) => {
@@ -933,289 +848,6 @@ export default function PortfolioApp() {
     dispatch({ type: 'selectProject', index })
   }, [])
 
-  useLayoutEffect(() => {
-    let cancelled = false
-    let rafAnchor = 0
-    let rafSettle1 = 0
-    let rafSettle2 = 0
-    const ANCHOR_RAF_MAX = 12
-
-    const scheduleStaticSettle = () => {
-      rafSettle1 = requestAnimationFrame(() => {
-        rafSettle2 = requestAnimationFrame(() => {
-          if (cancelled || railDotAnimLockRef.current) return
-          const track = railTrackRef.current
-          const a = railDotAnchorRefs.current[projectIndex]
-          if (!track || !a) return
-          setRailDotTranslate(computeRailDotTranslate(track, a))
-        })
-      })
-    }
-
-    const run = (anchorAttempt: number) => {
-      const track = railTrackRef.current
-      const dot = railFloatingDotRef.current
-      if (!track || !dot || cancelled) return
-      const anchor = railDotAnchorRefs.current[projectIndex]
-      if (!anchor) {
-        if (anchorAttempt < ANCHOR_RAF_MAX) {
-          rafAnchor = requestAnimationFrame(() => run(anchorAttempt + 1))
-        }
-        return
-      }
-
-      const cardEl = cardRefs.current[projectIndex]
-      const from = railDotCommittedProjectIndexRef.current
-
-      if (from === projectIndex) {
-        if (cardEl) cardEl.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'instant' })
-        const end = computeRailDotTranslate(track, anchor)
-        if (!railDotAnimLockRef.current) setRailDotTranslate(end)
-        scheduleStaticSettle()
-        return
-      }
-
-      railDotAnimRef.current?.cancel()
-      railDotAnimRef.current = null
-
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        if (cardEl) cardEl.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'instant' })
-        const end = computeRailDotTranslate(track, anchor)
-        setRailDotTranslate(end)
-        setRailDotAnimating(false)
-        railDotCommittedProjectIndexRef.current = projectIndex
-        return
-      }
-
-      if (cardEl) cardEl.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'instant' })
-      const end = computeRailDotTranslate(track, anchor)
-      const start = getRailDotTranslateFromVisual(track, dot)
-
-      railDotAnimLockRef.current = true
-      setRailDotAnimating(true)
-      const keyframes = buildRailDotJumpKeyframes(start, end, 16)
-      const anim = dot.animate(keyframes, {
-        duration: RAIL_DOT_JUMP_MS,
-        easing: 'cubic-bezier(0.215, 0.61, 0.355, 1)',
-        fill: 'forwards',
-      })
-      railDotAnimRef.current = anim
-      const onFinish = () => {
-        railDotAnimRef.current = null
-        railDotAnimLockRef.current = false
-        setRailDotTranslate(end)
-        setRailDotAnimating(false)
-        railDotCommittedProjectIndexRef.current = projectIndex
-      }
-      const onCancel = () => {
-        railDotAnimRef.current = null
-        railDotAnimLockRef.current = false
-        setRailDotAnimating(false)
-        const t = railTrackRef.current
-        const d = railFloatingDotRef.current
-        if (t && d) setRailDotTranslate(getRailDotTranslateFromVisual(t, d))
-      }
-      anim.onfinish = onFinish
-      anim.oncancel = onCancel
-    }
-
-    run(0)
-
-    return () => {
-      cancelled = true
-      cancelAnimationFrame(rafAnchor)
-      cancelAnimationFrame(rafSettle1)
-      cancelAnimationFrame(rafSettle2)
-      const hadAnim = railDotAnimRef.current != null
-      railDotAnimRef.current?.cancel()
-      if (!hadAnim && railDotAnimLockRef.current) {
-        railDotAnimLockRef.current = false
-      }
-    }
-  }, [projectIndex, isInfoOpen, railStagger.ready])
-
-  useEffect(() => {
-    const onResize = () => {
-      if (railDotAnimLockRef.current) return
-      const track = railTrackRef.current
-      const a = railDotAnchorRefs.current[projectIndex]
-      if (!track || !a) return
-      setRailDotTranslate(computeRailDotTranslate(track, a))
-    }
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [projectIndex])
-
-  /* Cards with `railCardEnter` move vertically; re-measure until enter animation finishes. */
-  const railStaggerOrder = railStagger.stagger[projectIndex] ?? 0
-  useEffect(() => {
-    if (!isInfoOpen || !railStagger.ready) return
-
-    const delayMs = railStaggerOrder * (VIEW_RESIZE_MS / RAIL_STAGGER_TIME_DIVISOR)
-    const followMs = delayMs + RAIL_CARD_ENTER_MS + 100
-
-    let rafId = 0
-    const t0 = performance.now()
-
-    const tick = () => {
-      if (performance.now() - t0 > followMs) return
-      if (!railDotAnimLockRef.current) {
-        const track = railTrackRef.current
-        const a = railDotAnchorRefs.current[projectIndex]
-        if (track && a) setRailDotTranslate(computeRailDotTranslate(track, a))
-      }
-      rafId = requestAnimationFrame(tick)
-    }
-
-    rafId = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(rafId)
-  }, [isInfoOpen, railStagger.ready, projectIndex, railStaggerOrder])
-
-  const cancelRailMomentum = useCallback(() => {
-    if (railMomentumRaf.current !== null) {
-      cancelAnimationFrame(railMomentumRaf.current)
-      railMomentumRaf.current = null
-    }
-    railRef.current?.classList.remove('rail--momentum')
-  }, [])
-
-  const cancelRailGapDynamics = useCallback(() => {
-    if (railGapRafRef.current !== null) {
-      cancelAnimationFrame(railGapRafRef.current)
-      railGapRafRef.current = null
-    }
-    railGapSmoothedRef.current = 0
-    railTrackRef.current?.style.setProperty('--rail-gap-extra', '0px')
-  }, [])
-
-  const ensureRailGapDecay = useCallback(() => {
-    if (railGapRafRef.current !== null) return
-    const tick = () => {
-      const now = performance.now()
-      if (now - railGapLastFeedRef.current < RAIL_GAP_IDLE_MS) {
-        railGapRafRef.current = requestAnimationFrame(tick)
-        return
-      }
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        cancelRailGapDynamics()
-        return
-      }
-      const v = railGapSmoothedRef.current
-      let next = v * (v > 0.2 ? RAIL_GAP_DECAY : RAIL_GAP_DECAY_TAIL)
-      if (next < RAIL_GAP_SNAP) next = 0
-      railGapSmoothedRef.current = next
-      const el = railTrackRef.current
-      if (el) {
-        el.style.setProperty('--rail-gap-extra', `${next * RAIL_GAP_MAX_EXTRA_PX}px`)
-      }
-      if (next === 0) {
-        railGapRafRef.current = null
-        return
-      }
-      railGapRafRef.current = requestAnimationFrame(tick)
-    }
-    railGapRafRef.current = requestAnimationFrame(tick)
-  }, [cancelRailGapDynamics])
-
-  const feedRailGapFromScrollSpeed = useCallback(
-    (speedPxPerMs: number) => {
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-      const speed = Math.min(RAIL_GAP_SPEED_CAP, Math.abs(speedPxPerMs))
-      const t = Math.min(1, speed / RAIL_GAP_SPEED_REF)
-      const prev = railGapSmoothedRef.current
-      railGapSmoothedRef.current = prev + (t - prev) * RAIL_GAP_SMOOTH
-      railGapLastFeedRef.current = performance.now()
-      const el = railTrackRef.current
-      if (el) {
-        el.style.setProperty('--rail-gap-extra', `${railGapSmoothedRef.current * RAIL_GAP_MAX_EXTRA_PX}px`)
-      }
-      ensureRailGapDecay()
-    },
-    [ensureRailGapDecay],
-  )
-
-  const feedRailGapWheelImpulse = useCallback(
-    (wheelDeltaPx: number) => {
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-      const t = Math.min(1, wheelDeltaPx / RAIL_GAP_WHEEL_REF)
-      const prev = railGapSmoothedRef.current
-      railGapSmoothedRef.current = Math.max(prev + (t - prev) * 0.48, t * 0.82)
-      railGapLastFeedRef.current = performance.now()
-      const el = railTrackRef.current
-      if (el) {
-        el.style.setProperty('--rail-gap-extra', `${railGapSmoothedRef.current * RAIL_GAP_MAX_EXTRA_PX}px`)
-      }
-      ensureRailGapDecay()
-    },
-    [ensureRailGapDecay],
-  )
-
-  const startRailMomentum = useCallback(
-    (rail: HTMLDivElement, velocityPxPerMs: number) => {
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-      let v = velocityPxPerMs * RAIL_MOMENTUM_BOOST
-      if (Math.abs(v) < RAIL_MOMENTUM_MIN_VELOCITY) return
-
-      cancelRailMomentum()
-      rail.classList.add('rail--momentum')
-      let last = performance.now()
-
-      const maxScroll = () => Math.max(0, rail.scrollWidth - rail.clientWidth)
-
-      const step = (now: number) => {
-        const dt = Math.min(48, now - last)
-        last = now
-        if (dt <= 0) {
-          railMomentumRaf.current = requestAnimationFrame(step)
-          return
-        }
-
-        const m = maxScroll()
-        const prev = rail.scrollLeft
-        let next = prev + v * dt
-        if (next < 0) {
-          next = 0
-          v = 0
-        } else if (next > m) {
-          next = m
-          v = 0
-        } else {
-          v *= Math.pow(RAIL_MOMENTUM_FRICTION, dt / 16)
-        }
-        rail.scrollLeft = next
-
-        if (Math.abs(v) < RAIL_MOMENTUM_STOP) {
-          cancelRailMomentum()
-          return
-        }
-        railMomentumRaf.current = requestAnimationFrame(step)
-      }
-
-      railMomentumRaf.current = requestAnimationFrame(step)
-    },
-    [cancelRailMomentum],
-  )
-
-  const resetRailPointer = useCallback(() => {
-    if (!railDrag.current.active) return
-    const pointerId = railDrag.current.pointerId
-    const rail = railRef.current
-    if (pointerId >= 0 && rail?.hasPointerCapture(pointerId)) {
-      rail.releasePointerCapture(pointerId)
-    }
-    railDrag.current = {
-      active: false,
-      pointerId: -1,
-      startX: 0,
-      startScrollLeft: 0,
-      moved: false,
-      lastClientX: 0,
-      lastTime: 0,
-      velocity: 0,
-    }
-    setIsRailDragging(false)
-  }, [])
-
   const openInfo = useCallback(() => {
     infoWheelAcc.current = 0
     infoWheelAccY.current = 0
@@ -1226,10 +858,7 @@ export default function PortfolioApp() {
     infoWheelAcc.current = 0
     infoWheelAccY.current = 0
     setIsInfoOpen(false)
-    cancelRailMomentum()
-    cancelRailGapDynamics()
-    resetRailPointer()
-  }, [cancelRailGapDynamics, cancelRailMomentum, resetRailPointer])
+  }, [])
 
   const toggleAbout = useCallback(() => {
     setIsAboutOpen((prev) => !prev)
@@ -1267,7 +896,7 @@ export default function PortfolioApp() {
       cancelAnimationFrame(rafOuter)
       cancelAnimationFrame(rafInner)
     }
-  }, [isInfoOpen, project.id, project.description, project.category])
+  }, [isInfoOpen, project.id, project.description])
 
   useEffect(() => {
     isInfoOpenRef.current = isInfoOpen
@@ -1335,92 +964,89 @@ export default function PortfolioApp() {
     cursorUiRef.current = cursorUi
   }, [cursorUi])
 
-  useEffect(
-    () => () => {
-      cancelRailMomentum()
-      cancelRailGapDynamics()
-    },
-    [cancelRailGapDynamics, cancelRailMomentum],
-  )
+  useLayoutEffect(() => {
+    if (!isInfoOpen) return
+
+    const rail = railCarouselRef.current?.element
+    if (!rail) return
+
+    const railRect = rail.getBoundingClientRect()
+    const railCenter = railRect.left + railRect.width / 2
+    const slides = Array.from(rail.children).filter((child): child is HTMLElement =>
+      child.matches('.card, .archiveTeaser'),
+    )
+
+    slides
+      .map((slide, index) => {
+        const rect = slide.getBoundingClientRect()
+        return {
+          slide,
+          index,
+          distance: Math.abs(rect.left + rect.width / 2 - railCenter),
+        }
+      })
+      .sort((a, b) => a.distance - b.distance || a.index - b.index)
+      .forEach(({ slide }, rank) => {
+        slide.style.setProperty('--rail-enter-rank', String(rank))
+      })
+  }, [isInfoOpen])
 
   useEffect(() => {
-    const rail = railRef.current
+    if (!isInfoOpen) return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+
+    const rail = railCarouselRef.current?.element
     if (!rail) return
-    const now = performance.now()
-    railScrollSampleRef.current = {
-      lastLeft: rail.scrollLeft,
-      lastT: now,
-      lastScrollWidth: rail.scrollWidth,
-    }
-    const onScroll = () => {
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-      const ts = performance.now()
-      const left = rail.scrollLeft
-      const st = railScrollSampleRef.current
-      const dt = ts - st.lastT
-      const d = left - st.lastLeft
-      const scrollWidth = rail.scrollWidth
-      const maxS = Math.max(0, scrollWidth - rail.clientWidth)
 
-      // When gap shrinks, scrollWidth drops and the browser clamps scrollLeft — ignore that delta
-      if (st.lastScrollWidth > 0 && scrollWidth < st.lastScrollWidth - 0.5) {
-        const lost = st.lastScrollWidth - scrollWidth
-        if (Math.abs(d) <= lost + 8 && Math.abs(d) < 28) {
-          st.lastScrollWidth = scrollWidth
-          st.lastLeft = left
-          st.lastT = ts
-          return
-        }
-      }
-      st.lastScrollWidth = scrollWidth
+    let resetTimer = 0
+    let clearTimer = 0
 
-      if (dt < 5 || dt > 95) {
-        st.lastLeft = left
-        st.lastT = ts
+    const resetRubber = (clearAfterRelease = true) => {
+      rail.style.setProperty('--rail-rubber-ms', `${RAIL_RUBBER_RELEASE_MS}ms`)
+      rail.style.setProperty('--rail-rubber-x', '0px')
+      rail.style.setProperty('--rail-edge-glow', '0')
+      window.clearTimeout(clearTimer)
+
+      if (!clearAfterRelease) {
+        rail.removeAttribute('data-rubber-edge')
         return
       }
 
-      const edgePx = 3
-      const atStart = left <= edgePx
-      const atEnd = left >= maxS - edgePx
-      if (atStart || atEnd) {
-        if (Math.abs(d) < 3) {
-          st.lastLeft = left
-          st.lastT = ts
-          return
-        }
-        if (atStart && d < 0) {
-          st.lastLeft = left
-          st.lastT = ts
-          return
-        }
-        if (atEnd && d > 0) {
-          st.lastLeft = left
-          st.lastT = ts
-          return
-        }
+      clearTimer = window.setTimeout(() => {
+        rail.removeAttribute('data-rubber-edge')
+      }, RAIL_RUBBER_RELEASE_MS)
+    }
+
+    const handleOverscroll = (event: Event) => {
+      const pull = (event as CustomEvent<{ left?: number }>).detail?.left ?? 0
+      if (pull === 0) {
+        resetRubber()
+        return
       }
 
-      const speed = Math.abs(d / dt)
-      st.lastLeft = left
-      st.lastT = ts
-      if (speed < 0.022) return
-      feedRailGapFromScrollSpeed(speed)
-    }
-    rail.addEventListener('scroll', onScroll, { passive: true })
-    return () => rail.removeEventListener('scroll', onScroll)
-  }, [feedRailGapFromScrollSpeed])
+      const rubberX =
+        Math.sign(pull) * Math.min(RAIL_RUBBER_MAX_PX, Math.abs(pull) * RAIL_RUBBER_PULL_MULTIPLIER)
+      const intensity = Math.min(1, Math.abs(rubberX) / RAIL_RUBBER_MAX_PX)
 
-  useEffect(() => {
-    const rail = railRef.current
-    if (!rail) return
-    const now = performance.now()
-    railScrollSampleRef.current = {
-      lastLeft: rail.scrollLeft,
-      lastT: now,
-      lastScrollWidth: rail.scrollWidth,
+      rail.dataset.rubberEdge = pull < 0 ? 'end' : 'start'
+      rail.style.setProperty('--rail-rubber-ms', '0ms')
+      rail.style.setProperty('--rail-rubber-x', `${rubberX.toFixed(2)}px`)
+      rail.style.setProperty('--rail-edge-glow', intensity.toFixed(3))
+
+      window.clearTimeout(resetTimer)
+      window.clearTimeout(clearTimer)
+      resetTimer = window.setTimeout(resetRubber, 110)
     }
-  }, [projectIndex])
+
+    rail.addEventListener('overscroll', handleOverscroll)
+
+    return () => {
+      rail.removeEventListener('overscroll', handleOverscroll)
+      window.clearTimeout(resetTimer)
+      window.clearTimeout(clearTimer)
+      resetRubber(false)
+    }
+  }, [isInfoOpen])
 
   const isNearCursorHideTarget = useCallback((x: number, y: number) => {
     const targets = document.querySelectorAll<HTMLElement>('[data-cursor-hide="true"]')
@@ -1433,39 +1059,6 @@ export default function PortfolioApp() {
     }
     return false
   }, [])
-
-  const endRailDrag = useCallback(
-    (pointerId: number) => {
-      const drag = railDrag.current
-      if (!drag.active || drag.pointerId !== pointerId) return
-      const rail = railRef.current
-      if (rail?.hasPointerCapture(pointerId)) {
-        rail.releasePointerCapture(pointerId)
-      }
-      const releaseVel = drag.moved ? drag.velocity : 0
-      if (drag.moved) {
-        lastRailDragAt.current = Date.now()
-      }
-      railDrag.current = {
-        active: false,
-        pointerId: -1,
-        startX: 0,
-        startScrollLeft: 0,
-        moved: false,
-        lastClientX: 0,
-        lastTime: 0,
-        velocity: 0,
-      }
-      setIsRailDragging(false)
-      if (
-        rail &&
-        Math.abs(releaseVel * RAIL_MOMENTUM_BOOST) >= RAIL_MOMENTUM_MIN_VELOCITY
-      ) {
-        startRailMomentum(rail, releaseVel)
-      }
-    },
-    [startRailMomentum],
-  )
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1530,13 +1123,6 @@ export default function PortfolioApp() {
           (e.shiftKey && ay >= RAIL_WHEEL_X_MIN)
 
         if (horizontalIntent) {
-          const rail = railRef.current
-          if (!rail) return
-          feedRailGapWheelImpulse(Math.hypot(ax, ay))
-          if (e.shiftKey && ay > ax) {
-            e.preventDefault()
-            rail.scrollLeft += py
-          }
           infoWheelAcc.current = 0
           infoWheelAccY.current = 0
           return
@@ -1595,7 +1181,13 @@ export default function PortfolioApp() {
     }
     window.addEventListener('wheel', onWheel, { passive: false })
     return () => window.removeEventListener('wheel', onWheel)
-  }, [archiveOpen, closeInfo, feedRailGapWheelImpulse, isAboutOpen, isInfoOpen, openInfo])
+  }, [
+    archiveOpen,
+    closeInfo,
+    isAboutOpen,
+    isInfoOpen,
+    openInfo,
+  ])
 
   useEffect(() => {
     const finePointerQuery = window.matchMedia('(hover: hover) and (pointer: fine)')
@@ -1724,77 +1316,6 @@ export default function PortfolioApp() {
   }, [isAboutOpen, isNearCursorHideTarget])
 
   useLayoutEffect(() => {
-    if (!isInfoOpen) {
-      startTransition(() => {
-        setRailStagger({ ready: false, stagger: [], visible: [] })
-      })
-      return
-    }
-
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      const n = projects.length
-      startTransition(() => {
-        setRailStagger({
-          ready: true,
-          stagger: Array.from({ length: n }, (_, i) => i),
-          visible: Array<boolean>(n).fill(true),
-        })
-      })
-      return
-    }
-
-    let cancelled = false
-    let raf2 = 0
-
-    const measureRailStagger = () => {
-      if (cancelled) return
-      const rail = railRef.current
-      if (!rail) return
-      const railRect = rail.getBoundingClientRect()
-      const n = projects.length
-      const stagger = new Array<number>(n).fill(0)
-      const visible = new Array<boolean>(n).fill(false)
-      const items: { i: number; left: number }[] = []
-
-      for (let i = 0; i < n; i++) {
-        const el = cardRefs.current[i]
-        if (!el) continue
-        const r = el.getBoundingClientRect()
-        const pad = 2
-        if (r.width > 0 && r.right > railRect.left + pad && r.left < railRect.right - pad) {
-          visible[i] = true
-          items.push({ i, left: r.left })
-        }
-      }
-      items.sort((a, b) => a.left - b.left)
-      items.forEach((item, order) => {
-        stagger[item.i] = order
-      })
-
-      /* While the rail is still sliding in, rects often miss the viewport → no items → all delays stay 0. */
-      if (items.length === 0) {
-        for (let i = 0; i < n; i++) {
-          stagger[i] = i
-          visible[i] = true
-        }
-      }
-
-      setRailStagger({ ready: true, stagger, visible })
-    }
-
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(measureRailStagger)
-    })
-
-    return () => {
-      cancelled = true
-      cancelAnimationFrame(raf1)
-      cancelAnimationFrame(raf2)
-    }
-  }, [isInfoOpen])
-
-  useLayoutEffect(() => {
-    if (USE_COLOR_MEDIA_PLACEHOLDERS) return
     let raf = 0
     raf = requestAnimationFrame(() => {
       runChromeSample()
@@ -1803,7 +1324,6 @@ export default function PortfolioApp() {
   }, [asset, isInfoOpen, projectIndex, assetIndex, runChromeSample])
 
   useEffect(() => {
-    if (USE_COLOR_MEDIA_PLACEHOLDERS) return
     const wrap = stageWrapRef.current
     if (!wrap) return
     const ro = new ResizeObserver(() => {
@@ -1818,7 +1338,6 @@ export default function PortfolioApp() {
   }, [runChromeSample])
 
   useEffect(() => {
-    if (USE_COLOR_MEDIA_PLACEHOLDERS) return
     if (asset.kind !== 'video') return
     const el = stageMediaRef.current
     if (!(el instanceof HTMLVideoElement)) return
@@ -1854,7 +1373,6 @@ export default function PortfolioApp() {
      bytes for stills, blob-URL'd buffers for videos (so duration is finite
      and playback starts immediately when reached). */
   useEffect(() => {
-    if (USE_COLOR_MEDIA_PLACEHOLDERS) return
     for (const entry of gallery) {
       if (entry.kind === 'image') {
         const image = new Image()
@@ -2014,89 +1532,6 @@ export default function PortfolioApp() {
     [closeInfo, isAboutOpen, isInfoOpen, openInfo],
   )
 
-  const handleRailPointerDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!isInfoOpen) return
-      if (e.pointerType === 'mouse' && e.button !== 0) return
-      const rail = railRef.current
-      if (!rail) return
-      cancelRailMomentum()
-      railDrag.current = {
-        active: true,
-        pointerId: e.pointerId,
-        startX: e.clientX,
-        startScrollLeft: rail.scrollLeft,
-        moved: false,
-        lastClientX: e.clientX,
-        lastTime: 0,
-        velocity: 0,
-      }
-    },
-    [cancelRailMomentum, isInfoOpen],
-  )
-
-  const handleRailPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    const drag = railDrag.current
-    if (!drag.active || drag.pointerId !== e.pointerId) return
-    const rail = railRef.current
-    if (!rail) return
-
-    const deltaX = e.clientX - drag.startX
-    if (!drag.moved && Math.abs(deltaX) < DRAG_START_PX) {
-      return
-    }
-
-    if (!drag.moved) {
-      drag.moved = true
-      setIsRailDragging(true)
-      rail.setPointerCapture(e.pointerId)
-      drag.lastClientX = e.clientX
-      drag.lastTime = performance.now()
-      drag.velocity = 0
-    } else {
-      const now = performance.now()
-      const dt = now - drag.lastTime
-      if (dt > 0 && drag.lastTime > 0) {
-        const inst = -(e.clientX - drag.lastClientX) / dt
-        drag.velocity =
-          RAIL_VELOCITY_SMOOTH * inst + (1 - RAIL_VELOCITY_SMOOTH) * drag.velocity
-      }
-      drag.lastClientX = e.clientX
-      drag.lastTime = now
-    }
-
-    rail.scrollLeft = drag.startScrollLeft - deltaX
-  }, [])
-
-  const handleRailPointerUp = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      endRailDrag(e.pointerId)
-    },
-    [endRailDrag],
-  )
-
-  const handleRailPointerCancel = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      endRailDrag(e.pointerId)
-    },
-    [endRailDrag],
-  )
-
-  const handleRailPointerLeave = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    const drag = railDrag.current
-    if (!drag.active || drag.pointerId !== e.pointerId || drag.moved) return
-    railDrag.current = {
-      active: false,
-      pointerId: -1,
-      startX: 0,
-      startScrollLeft: 0,
-      moved: false,
-      lastClientX: 0,
-      lastTime: 0,
-      velocity: 0,
-    }
-  }, [])
-
   const stageLabel = useMemo(() => {
     if (!canStep) return `${project.label} — 1 / 1`
     return `${project.label} — ${assetIndex + 1} / ${gallery.length}`
@@ -2137,92 +1572,86 @@ export default function PortfolioApp() {
     >
       <div className="fullBleed">
         <div className="fullBleedInner">
-        {/* Panel before stage so row order stays info | stage without flex order (fixes panel jumping right when closing). */}
-        <aside
-          id="project-info-panel"
-          ref={projectInfoPanelRef}
-          className="projectInfoPanel"
-          aria-hidden={!isInfoOpen}
-        >
-          <div className="projectInfoInner">
-            <div className="projectInfoHead">
-              <h2 className="projectInfoTitle" data-info-reveal="block">
-                {project.label}
-              </h2>
-              <p className="projectInfoCategory" data-info-reveal="block">
-                {project.category ?? defaultProjectCategory}
-              </p>
-            </div>
-            <ProjectInfoBody
-              key={`${project.id}-desc-0`}
-              className="projectInfoBody"
-              text={infoDescription[0]}
-            />
-            {infoDescription[1] ? (
-              <ProjectInfoBody
-                key={`${project.id}-desc-1`}
-                className="projectInfoBody"
-                text={infoDescription[1]}
-              />
-            ) : null}
-          </div>
-        </aside>
-
-        <section
-          className="stageMediaWrap"
-          ref={stageWrapRef}
-          aria-label={`Project preview for ${project.label}`}
-          onClick={(e) => {
-            if (!canStep) return
-            const rect = e.currentTarget.getBoundingClientRect()
-            const centerX = rect.left + rect.width / 2
-            if (e.clientX < centerX) goPrev()
-            else goNext()
-          }}
-        >
-          <div className="stageMedia">
-            {asset && (
-              <Squircle
-                cornerRadius={Math.max(0, stageCornerRadius)}
-                cornerSmoothing={stageCornerRadius > 0.5 ? 1 : 0}
-                className="stageMediaSquircle"
-              >
-                <GalleryStage
-                  media={asset}
-                  fit="cover"
-                  loop={!canStep}
-                  onActiveElement={handleActiveStageMedia}
-                  onMediaDecoded={runChromeSample}
-                />
-                <SquircleMediaStroke
+          <section
+            className="stageMediaWrap"
+            ref={stageWrapRef}
+            aria-label={`Project preview for ${project.label}`}
+            onClick={(e) => {
+              if (!canStep) return
+              const rect = e.currentTarget.getBoundingClientRect()
+              const centerX = rect.left + rect.width / 2
+              if (e.clientX < centerX) goPrev()
+              else goNext()
+            }}
+          >
+            <div className="stageMedia">
+              {asset && (
+                <Squircle
                   cornerRadius={Math.max(0, stageCornerRadius)}
                   cornerSmoothing={stageCornerRadius > 0.5 ? 1 : 0}
-                />
-              </Squircle>
-            )}
-            <div className="storyMeter" aria-hidden>
-              {gallery.map((slot, i) => {
-                const done = i < assetIndex
-                const active = i === assetIndex
-                const activeIsVideo = active && slot.kind === 'video'
-                const animateFill = active && !activeIsVideo
-                return (
-                  <span
-                    key={`${project.id}-story-${i}`}
-                    className={`storySegment ${active ? 'storySegment--active' : ''} ${done ? 'storySegment--done' : ''}`}
-                  >
+                  className="stageMediaSquircle"
+                >
+                  <GalleryStage
+                    media={asset}
+                    loop={!canStep}
+                    onActiveElement={handleActiveStageMedia}
+                    onMediaDecoded={runChromeSample}
+                  />
+                  <SquircleMediaStroke
+                    cornerRadius={Math.max(0, stageCornerRadius)}
+                    cornerSmoothing={stageCornerRadius > 0.5 ? 1 : 0}
+                  />
+                </Squircle>
+              )}
+              <div className="storyMeter" aria-hidden>
+                {gallery.map((slot, i) => {
+                  const done = i < assetIndex
+                  const active = i === assetIndex
+                  const activeIsVideo = active && slot.kind === 'video'
+                  const animateFill = active && !activeIsVideo
+                  return (
                     <span
-                      key={`${project.id}-storyfill-${i}-${active ? `${assetIndex}-${slot.kind}` : 'idle'}`}
-                      ref={active ? storyFillRef : null}
-                      className={`storyFill ${done ? 'storyFill--done' : ''} ${animateFill ? 'storyFill--active' : ''}`}
-                      style={animateFill ? { animationDuration: `${STORY_DURATION_MS}ms` } : undefined}
-                    />
-                  </span>
-                )
-              })}
+                      key={`${project.id}-story-${i}`}
+                      className={`storySegment ${active ? 'storySegment--active' : ''} ${done ? 'storySegment--done' : ''}`}
+                    >
+                      <span
+                        key={`${project.id}-storyfill-${i}-${active ? `${assetIndex}-${slot.kind}` : 'idle'}`}
+                        ref={active ? storyFillRef : null}
+                        className={`storyFill ${done ? 'storyFill--done' : ''} ${animateFill ? 'storyFill--active' : ''}`}
+                        style={animateFill ? { animationDuration: `${STORY_DURATION_MS}ms` } : undefined}
+                      />
+                    </span>
+                  )
+                })}
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+          <aside
+            id="project-info-panel"
+            ref={projectInfoPanelRef}
+            className="projectInfoPanel"
+            aria-hidden={!isInfoOpen}
+          >
+            <div className="projectInfoInner">
+              <div className="projectInfoHead">
+                <h2 className="projectInfoTitle" data-info-reveal="block">
+                  {project.label}
+                </h2>
+              </div>
+              <ProjectInfoBody
+                key={`${project.id}-desc-0`}
+                className="projectInfoBody"
+                text={infoDescription[0]}
+              />
+              {infoDescription[1] ? (
+                <ProjectInfoBody
+                  key={`${project.id}-desc-1`}
+                  className="projectInfoBody"
+                  text={infoDescription[1]}
+                />
+              ) : null}
+            </div>
+          </aside>
         </div>
       </div>
 
@@ -2244,6 +1673,11 @@ export default function PortfolioApp() {
       )}
 
       <header className="topBar">
+        <div className="topRight">
+          <span className="projectTitle" aria-hidden={isInfoOpen || isAboutOpen}>
+            {project.label}
+          </span>
+        </div>
         <div className="topBarLead">
           <p className="identity" aria-hidden={isAboutOpen}>
             fuksfranek
@@ -2284,11 +1718,6 @@ export default function PortfolioApp() {
             </span>
           </button>
         </div>
-        <div className="topRight">
-          <span className="projectTitle" aria-hidden={isInfoOpen || isAboutOpen}>
-            {project.label}
-          </span>
-        </div>
       </header>
 
       <aside
@@ -2311,45 +1740,23 @@ export default function PortfolioApp() {
         className="railWrap"
         ref={railWrapRef}
         data-info-open={isInfoOpen}
-        data-dragging={isRailDragging}
       >
         <div className="railWrapSlide" data-hidden={!isInfoOpen}>
-            <p className={`railHint ${!isInfoOpen ? 'railHint--visible' : ''}`} aria-hidden={isInfoOpen}>
-              <span className="railHintChevron" aria-hidden>
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M6 15L12 9L18 15"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
-              <span className="railHintLabel">swipe up for more</span>
-            </p>
-            <div
-              className="rail"
-              ref={railRef}
-              data-stagger-ready={railStagger.ready}
-              onPointerDown={handleRailPointerDown}
-              onPointerMove={handleRailPointerMove}
-              onPointerUp={handleRailPointerUp}
-              onPointerCancel={handleRailPointerCancel}
-              onPointerLeave={handleRailPointerLeave}
-            >
-              <div className="railTrack" ref={railTrackRef}>
-                <div
-                  ref={railFloatingDotRef}
-                  className="railFloatingDot"
-                  aria-hidden
-                  style={
-                    railDotAnimating
-                      ? undefined
-                      : { transform: `translate3d(${railDotTranslate.x}px, ${railDotTranslate.y}px, 0)` }
-                  }
+          <p className={`railHint ${!isInfoOpen ? 'railHint--visible' : ''}`} aria-hidden={isInfoOpen}>
+            <span className="railHintChevron" aria-hidden>
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M6 15L12 9L18 15"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 />
-                <div className="railTrackList" role="list">
+              </svg>
+            </span>
+            <span className="railHintLabel">swipe up for more</span>
+          </p>
+          <BlossomCarousel ref={railCarouselRef} as="div" className="rail" role="list" load="always">
             {projects.map((p, i) => {
               const open = i === projectIndex
               return (
@@ -2357,26 +1764,17 @@ export default function PortfolioApp() {
                   key={p.id}
                   type="button"
                   role="listitem"
-                  ref={(node) => {
-                    cardRefs.current[i] = node
-                  }}
                   className={`card ${open ? 'card--open' : 'card--default'}`}
-                  data-rail-enter={
-                    railStagger.ready ? (railStagger.visible[i] ? 'on' : 'off') : undefined
-                  }
                   style={
                     {
-                      '--card-stagger': railStagger.ready ? railStagger.stagger[i] ?? 0 : 0,
+                      '--rail-enter-index': i,
                       '--card-rest-scale': 0.95,
                     } as React.CSSProperties
                   }
                   data-state={open ? 'open' : 'default'}
-                  onClick={() => {
-                    if (Date.now() - lastRailDragAt.current < DRAG_CLICK_SUPPRESS_MS) return
-                    selectProject(i)
-                  }}
+                  onClick={() => selectProject(i)}
                   aria-current={open ? 'true' : undefined}
-                  aria-label={`${p.label}${open ? ', current project' : ''}`}
+                  aria-label={`${p.label}, ${p.category}${open ? ', current project' : ''}`}
                 >
                   <Squircle
                     cornerRadius={PROJECT_MEDIA_RADIUS}
@@ -2385,27 +1783,57 @@ export default function PortfolioApp() {
                   >
                     <MediaView media={p.cover} fit="cover" className="thumbMedia" variant="thumb" />
                     <SquircleMediaStroke cornerRadius={PROJECT_MEDIA_RADIUS} cornerSmoothing={1} />
-                  </Squircle>
-                  <div className="cardTitleFrame">
-                    <span className="cardLabelRow">
-                      <span className="cardLabelDotSlot" aria-hidden>
-                        <span
-                          className="railDotAnchor"
-                          ref={(el) => {
-                            railDotAnchorRefs.current[i] = el
-                          }}
+                    <span className="cardSelectedIcon" aria-hidden>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+                        <path
+                          d="M3 13C6.6 5 17.4 5 21 13"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
                         />
-                      </span>
-                      <span className="cardLabel">{p.label}</span>
+                        <path
+                          d="M12 17C10.3431 17 9 15.6569 9 14C9 12.3431 10.3431 11 12 11C13.6569 11 15 12.3431 15 14C15 15.6569 13.6569 17 12 17Z"
+                          fill="currentColor"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                      <span className="cardSelectedText">viewing now</span>
                     </span>
-                  </div>
+                    <span className="cardHoverIcon" aria-hidden>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+                        <path
+                          d="M17 8L12 3L7 8"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                        <path
+                          d="M17 16L12 21L7 16"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </span>
+                    <span className="cardLabel">
+                      <span className="cardLabelTitle">{p.label}</span>
+                      <span className="cardLabelCategory">{p.category}</span>
+                    </span>
+                  </Squircle>
                 </button>
               )
             })}
-            <ArchiveTeaser onNavigate={transitionToArchive} />
-                </div>
-              </div>
-            </div>
+            <ArchiveTeaser
+              onNavigate={transitionToArchive}
+              style={{ '--rail-enter-index': projects.length } as React.CSSProperties}
+            />
+          </BlossomCarousel>
         </div>
       </footer>
 
@@ -2439,27 +1867,16 @@ export default function PortfolioApp() {
         </svg>
       </div>
 
-      {USE_ARCHIVE_SHEET
-        ? archiveSheetMounted
-          ? createPortal(
-              <ArchiveSheet
-                open={archiveOpen}
-                onRequestClose={handleSheetRequestClose}
-                onClosed={handleSheetClosed}
-              />,
-              document.body,
-            )
-          : null
-        : archiveOpen
-          ? createPortal(
-              <ArchiveOverlay
-                entryRects={archiveEntryRects}
-                onClosed={closeArchive}
-                onShellRevealStart={startArchiveShellReveal}
-              />,
-              document.body,
-            )
-          : null}
+      {archiveSheetMounted
+        ? createPortal(
+            <ArchiveSheet
+              open={archiveOpen}
+              onRequestClose={handleSheetRequestClose}
+              onClosed={handleSheetClosed}
+            />,
+            document.body,
+          )
+        : null}
 
       <p className="visuallyHidden" aria-live="polite">
         {stageLabel}

@@ -26,6 +26,40 @@
   --squircle-media-overscan: 1.035;
   /* Inset ring on image frames (::after overlay — see App.css) */
   --media-frame-border: rgba(255, 255, 255, 0.1);
+  /* Layered/eased shadows inspired by Beautiful Shadows:
+     soft penumbra stacks instead of single hard drops. */
+  --shadow-ring-light: 0 0 0 1px rgba(16, 22, 31, 0.08);
+  --shadow-ring-on-dark: 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --shadow-surface:
+    0 38px 14px rgba(16, 22, 31, 0),
+    0 24px 13px rgba(16, 22, 31, 0.012),
+    0 14px 11px rgba(16, 22, 31, 0.036),
+    0 6px 8px rgba(16, 22, 31, 0.06),
+    0 2px 4px rgba(16, 22, 31, 0.072);
+  --shadow-surface-hover:
+    0 76px 22px rgba(16, 22, 31, 0),
+    0 48px 20px rgba(16, 22, 31, 0.016),
+    0 28px 18px rgba(16, 22, 31, 0.05),
+    0 14px 14px rgba(16, 22, 31, 0.092),
+    0 5px 9px rgba(16, 22, 31, 0.12);
+  --shadow-dark-surface:
+    0 56px 22px rgba(0, 0, 0, 0),
+    0 36px 20px rgba(0, 0, 0, 0.085),
+    0 20px 18px rgba(0, 0, 0, 0.17),
+    0 9px 12px rgba(0, 0, 0, 0.23),
+    0 3px 6px rgba(0, 0, 0, 0.28);
+  --shadow-dark-surface-hover:
+    0 76px 24px rgba(0, 0, 0, 0),
+    0 48px 22px rgba(0, 0, 0, 0.11),
+    0 28px 20px rgba(0, 0, 0, 0.22),
+    0 13px 14px rgba(0, 0, 0, 0.3),
+    0 4px 8px rgba(0, 0, 0, 0.36);
+  --shadow-drawer:
+    0 -64px 24px rgba(0, 0, 0, 0),
+    0 -40px 22px rgba(0, 0, 0, 0.024),
+    0 -22px 18px rgba(0, 0, 0, 0.05),
+    0 -10px 12px rgba(0, 0, 0, 0.072),
+    0 -3px 6px rgba(0, 0, 0, 0.086);
   /* Named stacks only (no system-ui on macOS — measurement mismatch with canvas text APIs) */
   --font-ui: Inter, Helvetica, Arial, sans-serif;
   /* Base typography scale */
@@ -51,30 +85,29 @@
   --chrome-ambient-letter-spacing: -0.011em;
   --chrome-ambient-color: var(--text-strong);
   /*
-   * Primary UI motion: ease-out-cubic (animations.dev) — shorter tail than quart, less “floaty”.
-   * Keep in [0,1] (no overshoot). Sync src/lib/easeViewInset.ts + WAAPI easing strings.
+   * Primary UI motion: soft ease-out — a little extra end easing without overshoot.
+   * Keep in [0,1]. Sync src/lib/easeViewInset.ts + WAAPI easing strings.
    */
-  --ease-out-cubic: cubic-bezier(0.215, 0.61, 0.355, 1);
+  --ease-out-cubic: cubic-bezier(0.16, 0.84, 0.32, 1);
   --ease-view-inset: var(--ease-out-cubic);
   --duration-view: 0.48s;
   /*
    * Motion family — keep in sync:
    * - Stage / project image + info panel + hit overlay (App.tsx VIEW_RESIZE_MS)
    * - Bottom rail slide (--duration-rail-reveal → --duration-stage-info)
-   * - Rail stagger divisor: App.tsx RAIL_STAGGER_TIME_DIVISOR + App.css animation-delay calc
    */
-  --duration-stage-info: 0.24s;
+  --duration-stage-info: 0.32s;
   --duration-view-resize: 0.34s;
   --duration-rail-card-hover: 0.18s;
-  --duration-rail-card-enter: 0.28s;
-  --duration-rail-reveal: var(--duration-stage-info);
+  --duration-rail-card-enter: 0.22s;
+  --duration-rail-reveal: 0.26s;
   --ease-rail-reveal: var(--ease-view-inset);
-  --duration-rail-dot-jump: 240ms;
 
   /* Layout: full-bleed media + overlapping rail; hit strip avoids header/rail */
   /* Horizontal margin at the start/end of the project slider (scroll-safe flex spacers) */
   --rail-spacer: var(--space-6);
-  --rail-thumb-h: clamp(7.5rem, 20vh, 12rem);
+  --rail-thumb-h: clamp(10rem, 25vh, 18rem);
+  --rail-hover-headroom: 4rem;
   /* Stage (info) + rail project covers — same corner radius */
   --project-media-radius: 20px;
   /* Fixed top bar: matches .topBar padding + identity row (1rem × body line-height) */
@@ -85,16 +118,11 @@
   --story-meter-h: 8px;
   /* Distance from viewport top to bottom edge of fixed header (safe area + bar) */
   --header-h: calc(env(safe-area-inset-top, 0px) + var(--header-bar-block-h));
-  /* Gap under thumb + two lines of rail label at --font-size-small × --line-height */
-  --rail-card-label-gap: 12px;
-  --rail-card-label-h: calc(var(--font-size-small) * var(--line-height) * 2);
-  /* Horizontal gap between rail project cards (.railTrack gap); info layout uses the same for stage ↔ rail */
-  --rail-inter-card-gap: 14px;
-  /* Full height from viewport bottom: rail track (pad + thumb + gap + title + pad) + safe area */
-  /* Top term matches .railTrack padding-top (even inset with horizontal padding) */
+  /* Horizontal gap between rail project cards; info layout uses the same for stage ↔ rail */
+  --rail-inter-card-gap: 4px;
+  /* Full height from viewport bottom: rail track (hover headroom + thumb + bottom pad) + safe area */
   --rail-stack-h: calc(
-    env(safe-area-inset-bottom) + var(--space-6) + var(--rail-thumb-h) + var(--rail-card-label-gap) +
-      var(--rail-card-label-h) + var(--space-6)
+    env(safe-area-inset-bottom) + var(--rail-hover-headroom) + var(--rail-thumb-h) + var(--space-6)
   );
 
   font-family: var(--font-ui);

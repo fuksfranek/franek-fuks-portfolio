@@ -107,8 +107,8 @@
   box-sizing: border-box;
   backface-visibility: hidden;
   transition:
-    padding var(--duration-stage-info, 0.24s) var(--ease-view-inset),
-    gap var(--duration-stage-info, 0.24s) var(--ease-view-inset);
+    padding var(--duration-stage-info, 0.32s) var(--ease-view-inset),
+    gap var(--duration-stage-info, 0.32s) var(--ease-view-inset);
 }
 
 .fullBleed::after {
@@ -181,21 +181,139 @@
 }
 
 .galleryStageLayer {
+  --stage-framed-padding: clamp(2rem, 7vw, 6.5rem);
+  --stage-framed-bg: #f4f0ea;
+  --stage-framed-bg-size: cover;
+  --stage-framed-bg-position: center;
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  display: block;
+  display: grid;
+  place-items: center;
   pointer-events: none;
   user-select: none;
-  object-position: center;
-  transform: scale(var(--squircle-media-overscan));
-  transform-origin: center center;
   backface-visibility: hidden;
   /* Crossfade lives entirely on opacity — both slots transition together
      so a promote feels like a single, soft handoff rather than two stages. */
   transition: opacity 320ms cubic-bezier(0.22, 0.61, 0.36, 1);
   will-change: opacity;
+}
+
+.galleryStageLayer--fill {
+  overflow: hidden;
+}
+
+.galleryStageLayer--framed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: var(--stage-framed-padding);
+  box-sizing: border-box;
+  container-type: size;
+}
+
+.galleryStageLayerBackground {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  background: var(--stage-framed-bg);
+  background-size: var(--stage-framed-bg-size);
+  background-position: var(--stage-framed-bg-position);
+  background-repeat: no-repeat;
+}
+
+.galleryStageMedia {
+  display: block;
+  pointer-events: none;
+  user-select: none;
+  backface-visibility: hidden;
+}
+
+.galleryStageMedia--fill {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-position: center;
+  transform: scale(var(--squircle-media-overscan));
+  transform-origin: center center;
+}
+
+.galleryStageFrameShell {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: min(100cqw, calc(100cqh * 3 / 2));
+  height: auto;
+  aspect-ratio: 3 / 2;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: visible;
+}
+
+.galleryStageFrameShell::after {
+  content: '';
+  position: absolute;
+  left: 15%;
+  right: 15%;
+  bottom: -1%;
+  height: 7%;
+  z-index: -1;
+  border-radius: 999px;
+  background: rgba(16, 22, 31, 0.14);
+  filter: blur(9px);
+  opacity: 0.42;
+  pointer-events: none;
+  transition:
+    opacity var(--duration-stage-info, 0.32s) var(--ease-view-inset),
+    filter var(--duration-stage-info, 0.32s) var(--ease-view-inset);
+}
+
+.galleryStageFrame {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  /* Corners: @squircle-js/react Squircle (matches project cover cards) */
+  filter:
+    drop-shadow(0 12px 12px rgba(16, 22, 31, 0.032))
+    drop-shadow(0 5px 7px rgba(16, 22, 31, 0.062))
+    drop-shadow(0 2px 3px rgba(16, 22, 31, 0.1));
+  transition: filter var(--duration-stage-info, 0.32s) var(--ease-view-inset);
+}
+
+.galleryStageMedia--framed {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 100%;
+  min-height: 100%;
+  max-width: none;
+  max-height: none;
+  object-position: center;
+}
+
+.galleryStageLayer--shadowSoft .galleryStageFrameShell {
+  box-shadow: none;
+}
+
+.galleryStageLayer:not(.galleryStageLayer--shadowSoft) .galleryStageFrameShell {
+  box-shadow: none;
+}
+
+.galleryStageLayer:not(.galleryStageLayer--shadowSoft) .galleryStageFrameShell::after {
+  opacity: 0;
+}
+
+.galleryStageLayer:not(.galleryStageLayer--shadowSoft) .galleryStageFrame {
+  filter: drop-shadow(0 1px 2px rgba(16, 22, 31, 0.08));
 }
 
 .galleryStageLayer--front {
@@ -208,7 +326,7 @@
   z-index: 1;
 }
 
-/* DOM order: panel first = left column in row. Width animates 0 ↔ --info-panel-w; no translate (keeps close/open symmetric). */
+/* Media sits first in DOM, panel second; the info transition now shrinks the media from the right edge. */
 .projectInfoPanel {
   display: flex;
   flex-direction: column;
@@ -224,9 +342,9 @@
   padding: 0;
   box-sizing: border-box;
   transition:
-    flex-basis var(--duration-stage-info, 0.24s) var(--ease-view-inset),
-    max-width var(--duration-stage-info, 0.24s) var(--ease-view-inset),
-    padding var(--duration-stage-info, 0.24s) var(--ease-view-inset);
+    flex-basis var(--duration-stage-info, 0.32s) var(--ease-view-inset),
+    max-width var(--duration-stage-info, 0.32s) var(--ease-view-inset),
+    padding var(--duration-stage-info, 0.32s) var(--ease-view-inset);
 }
 
 /* Width = final column minus padding so wrapping is fixed before fade-in (no line-jump) */
@@ -236,13 +354,13 @@
   width: calc(var(--info-panel-w) - 2 * var(--space-5));
   max-width: calc(var(--info-panel-w) - 2 * var(--space-5));
   opacity: 0;
-  transition: opacity var(--duration-stage-info, 0.24s) var(--ease-view-inset);
+  transition: opacity var(--duration-stage-info, 0.32s) var(--ease-view-inset);
   transition-delay: 0s;
 }
 
 .shell--info .projectInfoInner {
   opacity: 1;
-  transition: opacity var(--duration-stage-info, 0.24s) var(--ease-view-inset);
+  transition: opacity var(--duration-stage-info, 0.32s) var(--ease-view-inset);
   transition-delay: var(--info-content-reveal-delay);
 }
 
@@ -254,23 +372,6 @@
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-}
-
-.projectInfoCategory {
-  margin: 0;
-  width: 100%;
-  min-width: 0;
-  max-width: 37.5rem;
-  box-sizing: border-box;
-  font-weight: 400;
-  font-size: 1rem;
-  line-height: var(--line-height-body-px);
-  letter-spacing: -0.011em;
-  color: var(--text-muted);
-  white-space: normal;
-  overflow-wrap: break-word;
-  word-break: normal;
-  line-break: auto;
 }
 
 .projectInfoTitle {
@@ -293,7 +394,7 @@
 }
 
 .projectInfoHead + .projectInfoBody {
-  margin-top: 1.45rem;
+  margin-top: var(--space-3);
 }
 
 .projectInfoBody {
@@ -316,8 +417,10 @@
 }
 
 .shell--info {
-  /* Reserve rail stack; omit .railTrack top pad (0 in info). Add --rail-inter-card-gap so stage ↔ rail matches card-to-card gap. */
-  --info-bottom-pad: calc(var(--rail-stack-h) - var(--space-6) + var(--rail-inter-card-gap));
+  /* Compact detail card ↔ slider card gap. */
+  --info-side-pad: var(--space-8);
+  --info-top-pad: calc(var(--space-8) + env(safe-area-inset-top, 0px));
+  --info-bottom-pad: calc(var(--rail-stack-h) - var(--rail-hover-headroom) + var(--space-3));
 }
 
 .shell--info .fullBleedInner {
@@ -325,12 +428,11 @@
   gap: var(--info-gap);
 }
 
-.shell--info .railTrack {
+.shell--info .rail {
   /* No top padding — thumbnails sit flush under the image card */
   padding-top: 0;
 }
 
-/* Info: panel left, stage right — same DOM order as default row (no flex order swap on .shell--info) */
 .shell--info .stageMediaWrap {
   /* flex matches default .stageMediaWrap — squircle radius animates in JS */
   min-width: 0;
@@ -345,13 +447,13 @@
   max-height: 100%;
   pointer-events: auto;
   padding: var(--space-5);
-  padding-left: 0;
+  padding-right: 0;
   overflow-x: hidden;
   overflow-y: auto;
 }
 
 
-/* Prev/next: fixed strip; in info mode only over the stage column (right), not the panel */
+/* Prev/next: fixed strip; in info mode only over the stage column (left), not the panel */
 .hitOverlay {
   position: fixed;
   left: 0;
@@ -362,15 +464,15 @@
   display: flex;
   pointer-events: none;
   transition:
-    left var(--duration-stage-info, 0.24s) var(--ease-view-inset),
-    right var(--duration-stage-info, 0.24s) var(--ease-view-inset),
-    top var(--duration-stage-info, 0.24s) var(--ease-view-inset),
-    bottom var(--duration-stage-info, 0.24s) var(--ease-view-inset);
+    left var(--duration-stage-info, 0.32s) var(--ease-view-inset),
+    right var(--duration-stage-info, 0.32s) var(--ease-view-inset),
+    top var(--duration-stage-info, 0.32s) var(--ease-view-inset),
+    bottom var(--duration-stage-info, 0.32s) var(--ease-view-inset);
 }
 
 .shell--info .hitOverlay {
-  left: calc(var(--info-side-pad) + var(--info-panel-w) + var(--info-gap));
-  right: var(--info-side-pad);
+  left: var(--info-side-pad);
+  right: calc(var(--info-side-pad) + var(--info-panel-w) + var(--info-gap));
   top: var(--info-top-pad);
   bottom: var(--info-bottom-pad);
 }
@@ -414,6 +516,7 @@
   /* 24px from top (below safe area on notched devices); matches story dots inset from image */
   padding: calc(var(--space-6) + env(safe-area-inset-top, 0px)) var(--space-6) var(--space-6);
   pointer-events: none;
+  transition: padding var(--duration-stage-info, 0.32s) var(--ease-view-inset);
 }
 
 .topBar > * {
@@ -421,20 +524,37 @@
 }
 
 .topBarLead {
+  --identity-compact-w: calc(9ch + 26px);
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
-  justify-self: start;
+  justify-self: end;
+  width: var(--identity-compact-w);
   min-width: 0;
+  transition: width var(--duration-stage-info, 0.32s) var(--ease-view-inset);
+  pointer-events: none;
+}
+
+.shell--info .topBarLead {
+  width: calc(var(--info-panel-w) - var(--space-5));
+}
+
+.shell--info .topBar {
+  padding:
+    var(--info-top-pad)
+    var(--info-side-pad)
+    var(--space-6)
+    var(--info-side-pad);
 }
 
 .identity {
   margin: 0;
   white-space: nowrap;
   font-family: var(--chrome-ambient-font-family);
-  font-size: var(--font-size-base);
-  line-height: var(--chrome-ambient-line-height-px);
-  font-weight: 500;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
   letter-spacing: var(--chrome-ambient-letter-spacing);
   color: var(--chrome-ambient-color);
 }
@@ -449,8 +569,8 @@
 .identity h6,
 .identity a,
 .identity label {
-  font-size: var(--font-size-base);
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .identityMeta {
@@ -478,6 +598,7 @@
   font: inherit;
   cursor: pointer;
   transition: opacity 180ms var(--ease-view-inset);
+  pointer-events: auto;
 }
 
 /* Extends a 20px icon to a 40x40 tap target without shifting the visible art. */
@@ -781,7 +902,7 @@
 }
 
 .topRight {
-  justify-self: end;
+  justify-self: start;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -819,10 +940,15 @@
 }
 
 .railWrap {
-  --rail-panel-h: calc(
-    var(--space-3) + var(--rail-thumb-h) + var(--rail-card-label-gap) + var(--rail-card-label-h)
-  );
+  --rail-panel-h: calc(var(--rail-hover-headroom) + var(--rail-thumb-h) + var(--space-6));
   --rail-hint-gap: var(--space-4);
+  --rail-card-enter-y: 0;
+  --rail-card-hover-scale: 1.045;
+  --rail-card-selected-scale: 1;
+  --rail-card-state-duration: 220ms;
+  --rail-card-state-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --rail-card-shadow-rest: var(--shadow-surface);
+  --rail-card-shadow-hover: var(--shadow-surface-hover);
   /* Extra space between “swipe up for more” hint and cards only (cards stay flush to viewport bottom) */
   --rail-hint-lift: 24px;
   --rail-hint-pad: var(--space-5) var(--space-8);
@@ -848,8 +974,7 @@
   width: 100%;
   pointer-events: none;
   transform: translate3d(0, 0, 0);
-  transition: transform var(--duration-rail-reveal, var(--duration-stage-info, 0.24s))
-    var(--ease-rail-reveal, var(--ease-view-inset));
+  transition: transform var(--duration-rail-reveal, 0.32s) var(--ease-rail-reveal, var(--ease-view-inset));
 }
 
 .railWrapSlide[data-hidden='true'] {
@@ -869,60 +994,49 @@
   display: none;
 }
 
-/* --card-rest-scale: rail thumb scale (0.95). Selected: .card--open .thumb white ring. */
-/*
- * Same start as [data-hidden] cards: rise straight to rest (no overshoot).
- * Stagger: animation-delay uses --card-stagger from JS.
- */
-@keyframes railCardEnter {
+@keyframes railSlideEnter {
   from {
-    opacity: 0.94;
-    /* Matches [data-hidden='true'] .card — slide up only, no extra scale “breathing” */
-    transform: translateY(0.5rem) scale(calc(var(--card-rest-scale) * 0.95));
+    opacity: 0.6;
+    transform: translate3d(var(--rail-rubber-x), 22px, 0) scale(calc(var(--card-rest-scale) * 0.94));
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(var(--card-rest-scale));
+    transform: translate3d(var(--rail-rubber-x), 0, 0) scale(var(--card-rest-scale));
   }
 }
 
-.railWrapSlide[data-hidden='true'] .card {
-  animation: none;
-  transform: translateY(0.5rem) scale(calc(var(--card-rest-scale) * 0.95));
+.railWrapSlide[data-hidden='true'] .card,
+.railWrapSlide[data-hidden='true'] .archiveTeaser {
+  transform: scale(calc(var(--card-rest-scale) * 0.985));
   transition: none;
 }
 
-/* While measuring, hold rest pose; then only cards intersecting the rail viewport animate, left → right */
-.railWrapSlide[data-hidden='false'] .rail[data-stagger-ready='false'] .card {
-  animation: none;
-  transform: scale(var(--card-rest-scale));
-}
-
-.railWrapSlide[data-hidden='false'] .rail[data-stagger-ready='true'] .card[data-rail-enter='off'] {
-  animation: none;
-  transform: scale(var(--card-rest-scale));
-}
-
-.railWrapSlide[data-hidden='false'] .rail[data-stagger-ready='true'] .card[data-rail-enter='on'] {
-  /* `backwards`: “from” keyframe during stagger delay. No `forwards` so open/default scale wins after. */
-  animation: railCardEnter var(--duration-rail-card-enter, 0.28s) var(--ease-view-inset) backwards;
-  animation-delay: calc(var(--card-stagger, 0) * (var(--duration-stage-info, 0.24s) / 10));
+.railWrapSlide[data-hidden='false'] .rail > .card,
+.railWrapSlide[data-hidden='false'] .rail > .archiveTeaser {
+  animation: railSlideEnter 640ms cubic-bezier(0.22, 0.82, 0.18, 1) backwards;
+  animation-delay: calc(var(--rail-enter-rank, var(--rail-enter-index, 0)) * 30ms);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .railWrapSlide[data-hidden='true'] .card,
-  .railWrapSlide[data-hidden='false'] .card {
+  .railWrapSlide[data-hidden='false'] .card,
+  .railWrapSlide[data-hidden='true'] .archiveTeaser,
+  .railWrapSlide[data-hidden='false'] .archiveTeaser {
     animation: none !important;
   }
 }
 
-/* Scrollport only: no horizontal padding here (see .railTrack) */
 .rail {
+  --rail-edge-glow: 0;
+  --rail-rubber-ms: 0ms;
+  --rail-rubber-x: 0px;
   position: relative;
+  display: block;
   width: 100%;
   overflow: visible;
   overflow-x: auto;
   overflow-y: visible;
+  white-space: nowrap;
   scroll-snap-type: none;
   scroll-padding-inline: calc(var(--rail-spacer) + var(--space-3));
   overscroll-behavior-x: contain;
@@ -930,71 +1044,76 @@
   -webkit-overflow-scrolling: touch;
   padding-bottom: 0;
   margin-bottom: 0;
+  /* Top headroom keeps hover scale/shadow inside the horizontal scrollport. */
+  padding: var(--rail-hover-headroom) var(--space-6) var(--space-6) var(--space-5);
+  box-sizing: border-box;
   scrollbar-width: none;
   -ms-overflow-style: none;
   cursor: grab;
-}
-
-/* Single shared indicator — jumps on curve between cards (see App.tsx WAAPI) */
-.railFloatingDot {
-  position: absolute;
-  left: 0;
-  top: 0;
-  z-index: 6;
-  width: var(--card-label-dot-size, 10px);
-  height: var(--card-label-dot-size, 10px);
-  border-radius: 50%;
-  background: var(--text-strong);
-  pointer-events: none;
-  will-change: transform;
-}
-
-.railWrap[data-dragging='true'] .rail {
-  cursor: grabbing;
 }
 
 .rail::-webkit-scrollbar {
   display: none;
 }
 
-.railTrack {
-  /* Base gap + dynamic extra from scroll speed (set in JS as --rail-gap-extra) */
-  --rail-gap-extra: 0px;
-  --rail-gap: calc(var(--rail-inter-card-gap) + var(--rail-gap-extra));
-  position: relative;
-  display: flex;
-  flex-direction: row;
-  gap: var(--rail-gap);
-  width: max-content;
-  max-width: none;
-  /* Top inset = right inset so scaled cards align evenly from top and viewport right */
-  padding: var(--space-6) var(--space-6) var(--space-6) var(--space-5);
-  box-sizing: content-box;
+.rail::before,
+.rail::after {
+  content: '';
+  position: sticky;
+  top: var(--rail-hover-headroom);
+  z-index: 4;
+  display: inline-block;
+  width: 0;
+  height: var(--rail-thumb-h);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms ease;
 }
 
-/* Cards stay flex children of .railTrack; wrapper is for role="list" without the absolute dot. */
-.railTrackList {
-  display: contents;
+.rail::before {
+  left: 0;
+  box-shadow: 34px 0 44px rgba(16, 22, 31, calc(var(--rail-edge-glow) * 0.14));
 }
 
-/* Outer footprint matches .card: 4/3 thumb + rail label gap + label block (same as .thumb + .cardTitleFrame) */
+.rail::after {
+  right: 0;
+  box-shadow: -34px 0 44px rgba(16, 22, 31, calc(var(--rail-edge-glow) * 0.14));
+}
+
+.rail[data-rubber-edge='start']::before,
+.rail[data-rubber-edge='end']::after {
+  opacity: 1;
+}
+
 .archiveTeaser {
+  --card-rest-scale: 0.95;
   flex: 0 0 auto;
-  display: flex;
+  display: inline-flex;
   flex-direction: column;
   align-items: stretch;
-  gap: var(--rail-card-label-gap);
-  width: calc(var(--rail-thumb-h) * 4 / 3);
-  margin-left: var(--space-4);
+  gap: 0;
+  width: calc(var(--rail-thumb-h) * 4 / 5);
+  margin-right: var(--rail-inter-card-gap);
   padding: 0;
   border: none;
   background: none;
   cursor: pointer;
   text-align: center;
+  transform: translate3d(var(--rail-rubber-x), 0, 0) scale(var(--card-rest-scale));
   transform-origin: center bottom;
+  backface-visibility: hidden;
+  transition:
+    transform var(--rail-rubber-ms, 260ms) cubic-bezier(0.18, 1.38, 0.22, 1),
+    opacity var(--duration-rail-card-hover, 0.22s) ease;
   align-self: flex-end;
   box-sizing: border-box;
   font-size: 1rem;
+  vertical-align: bottom;
+  white-space: normal;
+}
+
+.rail > :last-child {
+  margin-right: 0;
 }
 
 .archiveTeaser:focus-visible {
@@ -1007,77 +1126,164 @@
   width: 100%;
   height: var(--rail-thumb-h);
   flex-shrink: 0;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 4 / 5;
+  overflow: visible;
+  border-radius: var(--project-media-radius);
+  background: transparent;
+  box-shadow: none;
+  transform: translate3d(0, 0, 0) scale(1);
+  transform-origin: center center;
+  transition: transform var(--rail-card-state-duration, 220ms) var(--rail-card-state-ease);
+}
+
+.archiveTeaserCards {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
 }
 
 .archiveTeaserCard {
+  --archive-teaser-x: 0px;
+  --archive-teaser-y: 0px;
+  --archive-teaser-rotate: 0deg;
+  --archive-teaser-hover-x: var(--archive-teaser-x);
+  --archive-teaser-hover-y: var(--archive-teaser-y);
+  --archive-teaser-hover-rotate: var(--archive-teaser-rotate);
   position: absolute;
+  display: block;
   left: 50%;
   top: 50%;
-  width: calc((var(--rail-thumb-h) * 4 / 3) * 0.74);
-  height: calc(var(--rail-thumb-h) * 0.68);
-  margin-left: calc((var(--rail-thumb-h) * 4 / 3) * 0.74 / -2);
-  margin-top: calc(var(--rail-thumb-h) * 0.68 / -2);
-  display: block;
-  object-fit: cover;
-  border-radius: 10px;
+  width: 72%;
+  height: 76%;
+  border-radius: clamp(7px, calc(var(--rail-thumb-h) * 0.04), 12px);
+  overflow: hidden;
+  background: #d8d8d8;
   box-shadow:
-    0 2px 6px rgba(16, 22, 31, 0.12),
-    0 10px 22px rgba(16, 22, 31, 0.08);
-  transition: transform 0.22s var(--ease-view-inset);
-  -webkit-user-drag: none;
+    var(--shadow-surface),
+    0 0 0 1px rgba(255, 255, 255, 0.34);
+  transform:
+    translate3d(calc(-50% + var(--archive-teaser-x)), calc(-50% + var(--archive-teaser-y)), 0)
+    rotate(var(--archive-teaser-rotate));
+  transform-origin: center center;
+  transition:
+    transform 260ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow var(--duration-rail-card-hover, 0.18s) ease;
+}
+
+.archiveTeaserCard > img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 100%;
+  min-height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: cover;
+  object-position: center;
+  transform: scale(1.08);
+  transform-origin: center;
+  user-select: none;
+  pointer-events: none;
 }
 
 .archiveTeaserCard--1 {
-  transform: translate(calc(var(--rail-thumb-h) * -0.042), calc(var(--rail-thumb-h) * 0.042)) rotate(-10deg);
+  --archive-teaser-x: -9%;
+  --archive-teaser-y: 7%;
+  --archive-teaser-rotate: -8deg;
+  --archive-teaser-hover-x: -17%;
+  --archive-teaser-hover-y: 3%;
+  --archive-teaser-hover-rotate: -13deg;
   z-index: 1;
 }
 
 .archiveTeaserCard--2 {
-  transform: translate(0, calc(var(--rail-thumb-h) * -0.025)) rotate(0deg);
+  --archive-teaser-x: 6%;
+  --archive-teaser-y: 5%;
+  --archive-teaser-rotate: 6deg;
+  --archive-teaser-hover-x: 15%;
+  --archive-teaser-hover-y: 0%;
+  --archive-teaser-hover-rotate: 10deg;
   z-index: 2;
 }
 
 .archiveTeaserCard--3 {
-  transform: translate(calc(var(--rail-thumb-h) * 0.042), calc(var(--rail-thumb-h) * 0.042)) rotate(10deg);
+  --archive-teaser-x: -1%;
+  --archive-teaser-y: -3%;
+  --archive-teaser-rotate: -2deg;
+  --archive-teaser-hover-x: -3%;
+  --archive-teaser-hover-y: -11%;
+  --archive-teaser-hover-rotate: -4deg;
   z-index: 3;
 }
 
+.archiveTeaserCard--4 {
+  --archive-teaser-x: 2%;
+  --archive-teaser-y: -7%;
+  --archive-teaser-rotate: 3deg;
+  --archive-teaser-hover-x: 4%;
+  --archive-teaser-hover-y: -17%;
+  --archive-teaser-hover-rotate: 5deg;
+  z-index: 4;
+}
+
 .archiveTeaserLabel {
-  display: flex;
-  align-items: flex-start;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
   margin: 0;
-  padding: 0 8px;
+  padding: 0.58rem 0.9rem;
   box-sizing: border-box;
-  min-height: var(--rail-card-label-h);
-  font-family: var(--font-ui);
+  border-radius: 999px;
+  background: #ffffff;
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  box-shadow: var(--shadow-ring-light);
   font-size: 1rem;
-  line-height: var(--line-height);
-  font-weight: 500;
+  line-height: 1.15;
+  font-weight: 600;
   letter-spacing: -0.011em;
-  color: var(--text-strong);
+  color: rgba(5, 5, 5, 0.92);
   text-align: center;
   word-break: normal;
   overflow-wrap: break-word;
-  opacity: 0.5;
+  opacity: 1;
+  white-space: nowrap;
+  transform: translate3d(-50%, -50%, 0);
+  transform-origin: center;
+  transition:
+    background-color var(--duration-rail-card-hover, 0.18s) ease,
+    transform var(--duration-rail-card-hover, 0.18s) var(--rail-card-state-ease);
+  pointer-events: none;
 }
 
 @media (hover: hover) and (pointer: fine) {
+  .railWrapSlide[data-hidden='false'] .archiveTeaser:hover .archiveTeaserStack {
+    transform: translate3d(0, 0, 0) scale(var(--rail-card-hover-scale));
+  }
+
+  .railWrapSlide[data-hidden='false'] .archiveTeaser:hover .archiveTeaserCard {
+    box-shadow:
+      var(--shadow-surface-hover),
+      0 0 0 1px rgba(255, 255, 255, 0.38);
+    transform:
+      translate3d(
+        calc(-50% + var(--archive-teaser-hover-x)),
+        calc(-50% + var(--archive-teaser-hover-y)),
+        0
+      )
+      rotate(var(--archive-teaser-hover-rotate));
+  }
+
   .archiveTeaser:hover .archiveTeaserLabel {
-    opacity: 1;
-  }
-
-  .archiveTeaser:hover .archiveTeaserCard--1 {
-    transform: translate(calc(var(--rail-thumb-h) * -0.05), calc(var(--rail-thumb-h) * 0.025)) rotate(-11deg);
-  }
-
-  .archiveTeaser:hover .archiveTeaserCard--2 {
-    transform: translate(0, calc(var(--rail-thumb-h) * -0.042)) rotate(0deg);
-  }
-
-  .archiveTeaser:hover .archiveTeaserCard--3 {
-    transform: translate(calc(var(--rail-thumb-h) * 0.05), calc(var(--rail-thumb-h) * 0.025)) rotate(11deg);
+    background: #ffffff;
+    transform: translate3d(-50%, -50%, 0) scale(1.02);
   }
 }
 
@@ -1085,30 +1291,35 @@
   --card-rest-scale: 0.95;
   flex: 0 0 auto;
   scroll-margin-inline: var(--space-2);
-  display: flex;
+  display: inline-flex;
   flex-direction: column;
   align-items: stretch;
-  gap: var(--rail-card-label-gap);
+  gap: 0;
   background: none;
   border: none;
   padding: 0;
   cursor: pointer;
   text-align: left;
   width: auto;
+  margin-right: var(--rail-inter-card-gap);
   transform-origin: center bottom;
+  backface-visibility: hidden;
   transition:
-    transform var(--duration-rail-card-hover, 0.18s) var(--ease-view-inset),
-    opacity calc(var(--duration-rail-card-hover, 0.18s) * 0.73) ease;
+    transform var(--rail-rubber-ms, 260ms) cubic-bezier(0.18, 1.38, 0.22, 1),
+    opacity var(--duration-rail-card-hover, 0.22s) ease;
+  vertical-align: bottom;
+  white-space: normal;
 }
 
-.card--default,
-.card--open {
+.card--default {
   opacity: 1;
-  transform: scale(var(--card-rest-scale));
+  transform: translate3d(var(--rail-rubber-x), 0, 0) scale(var(--card-rest-scale));
 }
 
 .card--open {
   z-index: 1;
+  opacity: 1;
+  transform: translate3d(var(--rail-rubber-x), 0, 0) scale(var(--card-rest-scale));
 }
 
 .card:focus-visible {
@@ -1119,44 +1330,39 @@
 .thumb {
   height: var(--rail-thumb-h);
   width: auto;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 4 / 5;
   /* Corners: @squircle-js/react Squircle (matches --project-media-radius) */
   border: none;
   background: var(--thumb-bg);
   position: relative;
   overflow: hidden;
-  /* Softer stack for non-selected cards */
-  box-shadow:
-    0 36px 10px 0 rgba(64, 64, 64, 0),
-    0 22px 9px 0 rgba(64, 64, 64, 0.006),
-    0 12px 8px 0 rgba(64, 64, 64, 0.03),
-    0 6px 5px 0 rgba(64, 64, 64, 0.05),
-    0 2px 4px 0 rgba(64, 64, 64, 0.06);
+  transform-origin: center center;
+  transition:
+    transform var(--rail-card-state-duration, 220ms) var(--rail-card-state-ease),
+    box-shadow var(--rail-card-state-duration, 220ms) ease;
+  box-shadow: var(--rail-card-shadow-rest);
 }
 
 .card--open .thumb {
+  transform: scale(var(--rail-card-selected-scale));
   box-shadow: 0 0 0 2px var(--rail-open-thumb-ring);
 }
 
-/* ~5% larger on hover (non-selected only); selected .card--open stays rest scale — fine pointers; off while dragging.
-   Selectors must match or beat .rail[data-stagger-ready] .card[data-rail-enter] so transform
-   still applies when stagger marks cards as data-rail-enter='off' (higher specificity). */
+/* Gentle hover lift (non-selected only) — fine pointers. */
 @media (hover: hover) and (pointer: fine) {
-  /* Hovered card stays full opacity; others fade to 90% */
-  .railWrap:not([data-dragging='true']) .railWrapSlide[data-hidden='false'] .railTrack:has(.card:hover) .card:not(:hover) {
-    opacity: 0.9;
+  .railWrapSlide[data-hidden='false'] .card:not(.card--open):hover {
+    transform: translate3d(var(--rail-rubber-x), 0, 0) scale(var(--card-rest-scale));
   }
 
-  .railWrap:not([data-dragging='true']) .railWrapSlide[data-hidden='false'] .rail[data-stagger-ready='false'] .card:not(.card--open):hover,
-  .railWrap:not([data-dragging='true'])
-    .railWrapSlide[data-hidden='false']
-    .rail[data-stagger-ready='true']
-    .card[data-rail-enter='off']:not(.card--open):hover,
-  .railWrap:not([data-dragging='true'])
-    .railWrapSlide[data-hidden='false']
-    .rail[data-stagger-ready='true']
-    .card[data-rail-enter='on']:not(.card--open):hover {
-    transform: scale(calc(var(--card-rest-scale) * 1.05));
+  .railWrapSlide[data-hidden='false'] .card:not(.card--open):hover .thumb {
+    transform: scale(var(--rail-card-hover-scale));
+    box-shadow: var(--rail-card-shadow-hover);
+  }
+
+  .railWrapSlide[data-hidden='false'] .card:not(.card--open):hover .cardHoverIcon {
+    opacity: 1;
+    filter: blur(0);
+    transform: rotate(-45deg) scale(1);
   }
 }
 
@@ -1164,107 +1370,140 @@
   width: 100%;
   height: 100%;
   display: block;
+  position: relative;
+  z-index: 0;
   object-position: center;
   transform: scale(var(--squircle-media-overscan));
   transform-origin: center center;
-}
-
-/* Title block: horizontal inset from card edges; sits under thumb with --rail-card-label-gap */
-.cardTitleFrame {
-  width: 100%;
-  min-width: 0;
-  padding-inline: 8px;
-  box-sizing: border-box;
-}
-
-.cardLabelRow {
-  display: flex;
-  align-items: flex-start;
-  gap: 0;
-  width: 100%;
-  min-width: 0;
-}
-
-/*
- * Dot column: collapsed on non-selected cards (label uses full width).
- * Selected card grows the slot so copy clears the dot — timed with .railFloatingDot jump.
- */
-.cardLabelDotSlot {
-  --card-label-dot-size: 10px;
-  --card-label-dot-gap: 6px;
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  flex-shrink: 0;
-  width: 0;
-  min-width: 0;
-  overflow: visible;
-  align-self: flex-start;
-  min-height: calc(0.32em + var(--card-label-dot-size));
-  transition: width var(--duration-rail-dot-jump, 300ms) var(--ease-view-inset);
-}
-
-.card--open .cardLabelDotSlot {
-  width: calc(var(--card-label-dot-size) + var(--card-label-dot-gap));
-}
-
-/* Invisible measure target — absolute so width:0 slot still exposes a stable rect for the jump */
-.railDotAnchor {
-  position: absolute;
-  left: 0;
-  top: 0.32em;
-  width: var(--card-label-dot-size, 10px);
-  height: var(--card-label-dot-size, 10px);
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.cardLabel {
-  flex: 1;
-  margin: 0;
-  padding: 0;
-  min-width: 0;
-  color: var(--text-strong);
-  text-align: left;
-  font-size: 1rem;
-  line-height: var(--line-height);
-  font-weight: 500;
-  word-break: normal;
-  overflow-wrap: break-word;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
   transition:
-    color 0.2s var(--ease-view-inset),
-    opacity 0.2s var(--ease-view-inset);
+    opacity var(--rail-card-state-duration, 220ms) ease,
+    filter var(--rail-card-state-duration, 220ms) ease;
 }
 
-.card--default .cardLabel {
+.card--open .thumbMedia {
   opacity: 0.5;
 }
 
+.cardSelectedIcon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 3;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  color: #ffffff;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.92);
+  transition:
+    opacity var(--rail-card-state-duration, 220ms) ease,
+    transform var(--rail-card-state-duration, 220ms) var(--rail-card-state-ease);
+  filter: drop-shadow(0 1px 8px rgba(0, 0, 0, 0.38));
+  pointer-events: none;
+}
+
+.card--open .cardSelectedIcon {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.cardSelectedIcon svg {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+
+.cardHoverIcon {
+  position: absolute;
+  top: var(--space-5);
+  right: var(--space-5);
+  z-index: 3;
+  display: inline-flex;
+  color: #ffffff;
+  opacity: 0;
+  filter: blur(6px);
+  transform: rotate(-45deg) scale(0.82);
+  transform-origin: center;
+  transition:
+    opacity var(--duration-rail-card-hover, 0.18s) ease,
+    filter var(--duration-rail-card-hover, 0.18s) ease,
+    transform var(--duration-rail-card-hover, 0.18s) var(--rail-card-state-ease);
+  pointer-events: none;
+}
+
+.cardHoverIcon svg {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+
+.cardSelectedText {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 1rem;
+  line-height: var(--line-height);
+  font-weight: 600;
+  letter-spacing: -0.011em;
+  white-space: nowrap;
+}
+
+.cardLabel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 2px;
+  margin: 0;
+  padding: var(--space-5);
+  box-sizing: border-box;
+  min-width: 0;
+  color: #ffffff;
+  text-align: left;
+  letter-spacing: -0.011em;
+  word-break: normal;
+  overflow-wrap: break-word;
+  overflow: hidden;
+  transition:
+    color var(--rail-card-state-duration, 220ms) ease,
+    opacity var(--rail-card-state-duration, 220ms) ease;
+}
+
+.cardLabelTitle,
+.cardLabelCategory {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.cardLabelTitle {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 1rem;
+  line-height: 1.15;
+  font-weight: 700;
+}
+
+.cardLabelCategory {
+  display: block;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 1rem;
+  line-height: 1.15;
+  font-weight: 400;
+  opacity: 0.74;
+}
+
+.card--default .cardLabel {
+  opacity: 1;
+}
+
 .card--open .cardLabel {
-  opacity: 1;
-}
-
-.railWrap[data-dragging='true'] .railTrack {
-  user-select: none;
-}
-
-.railWrap[data-dragging='true'] .card--default {
-  transform: scale(0.93);
-  opacity: 1;
-}
-
-.railWrap[data-dragging='true'] .card--open {
-  transform: scale(0.96);
-}
-
-.railWrap[data-dragging='true'] .card {
-  will-change: transform;
-  transition-duration: 90ms, 90ms;
-  transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1), ease-out;
+  opacity: 0;
 }
 
 .railHint {
@@ -1398,21 +1637,19 @@
     transition: none;
   }
 
-  .archiveTeaserCard {
+  .archiveTeaserCard,
+  .archiveTeaserStack,
+  .archiveTeaserLabel,
+  .thumb,
+  .thumbMedia,
+  .cardSelectedIcon,
+  .cardHoverIcon,
+  .cardLabel {
     transition: none;
   }
 
   .card {
     transition: none;
-  }
-
-  .cardLabelDotSlot {
-    transition: none;
-  }
-
-  .railFloatingDot {
-    transition: none !important;
-    animation: none !important;
   }
 
   .fullBleed,
@@ -1484,10 +1721,6 @@
     max-width: 6.2rem;
   }
 
-  .cardTitleFrame {
-    max-width: 9.5rem;
-  }
-
   .railHint {
     white-space: nowrap;
   }
@@ -1505,17 +1738,12 @@
   }
 
   .rail,
-  .railWrap[data-dragging='true'] .rail,
   .card {
     cursor: auto;
   }
 
   .rail {
     cursor: grab;
-  }
-
-  .railWrap[data-dragging='true'] .rail {
-    cursor: grabbing;
   }
 
   .card {
@@ -1540,16 +1768,14 @@
     overflow-y: auto;
   }
 
-  /* Stack: stage on top (DOM has panel first — bump stage up) */
+  /* Stack: stage on top, panel below. */
   .shell--info .stageMediaWrap {
-    order: 1;
     flex: 1 1 auto;
     min-height: min(44svh, 52vh);
     width: 100%;
   }
 
   .shell--info .projectInfoPanel {
-    order: 2;
     align-self: stretch;
     flex: 1 1 auto;
     min-height: 0;

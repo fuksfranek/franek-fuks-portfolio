@@ -210,9 +210,7 @@
   border-radius: 14px;
   overflow: hidden;
   opacity: 1;
-  box-shadow:
-    0 2px 4px rgba(16, 22, 31, 0.06),
-    0 12px 24px rgba(16, 22, 31, 0.06);
+  box-shadow: var(--shadow-surface);
   /* Opacity overlaps the GSAP clone tail-fade — no flash at handoff. */
   transition:
     opacity 220ms cubic-bezier(0.16, 1, 0.3, 1),
@@ -221,23 +219,17 @@
 }
 
 .archivePage .archiveCell {
-  box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.45),
-    0 14px 32px rgba(0, 0, 0, 0.38);
+  box-shadow: var(--shadow-dark-surface);
 }
 
 @media (hover: hover) and (pointer: fine) {
   .archiveCell:hover {
     transform: translateY(-2px);
-    box-shadow:
-      0 4px 8px rgba(16, 22, 31, 0.08),
-      0 18px 36px rgba(16, 22, 31, 0.08);
+    box-shadow: var(--shadow-surface-hover);
   }
 
   .archivePage .archiveCell:hover {
-    box-shadow:
-      0 6px 14px rgba(0, 0, 0, 0.5),
-      0 22px 44px rgba(0, 0, 0, 0.42);
+    box-shadow: var(--shadow-dark-surface-hover);
   }
 }
 
@@ -364,8 +356,8 @@
   object-fit: cover;
   border-radius: 12px;
   box-shadow:
-    0 32px 64px rgba(0, 0, 0, 0.55),
-    0 0 0 1px rgba(255, 255, 255, 0.06);
+    var(--shadow-dark-surface-hover),
+    var(--shadow-ring-on-dark);
   cursor: zoom-out;
   -webkit-user-drag: none;
   /* Transform driven by GSAP — reserve a layer to keep scaling smooth. */
@@ -389,8 +381,8 @@
   font-size: 18px;
   line-height: 1;
   box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.35),
-    0 8px 20px rgba(0, 0, 0, 0.45);
+    var(--shadow-dark-surface),
+    var(--shadow-ring-on-dark);
   /* Hidden until --lightboxOpen lifts it in; matches grid pushback timing for a paired feel. */
   opacity: 0;
   transform: scale(0.85);
@@ -415,7 +407,6 @@
   outline-offset: 2px;
 }
 
-/* View Transitions API: black surface during cross-fade (pairs with runWithViewTransition in PortfolioApp). */
 @supports (view-transition-name: none) {
   .archivePage {
     view-transition-name: archive-page;
