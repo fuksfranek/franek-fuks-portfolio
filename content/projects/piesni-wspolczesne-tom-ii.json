@@ -1,0 +1,12 @@
+{
+  "order": 5,
+  "id": "piesni-wspolczesne-tom-ii",
+  "label": "Pieśni tom II",
+  "category": "book",
+  "cover": {
+    "kind": "image",
+    "src": "/images/projects/piesni-wspolczesne-tom-ii/cover/piesni.png",
+    "alt": "Pieśni współczesne tom II cover"
+  },
+  "gallery": []
+}

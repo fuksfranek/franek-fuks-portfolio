@@ -1,0 +1,12 @@
+{
+  "order": 9,
+  "id": "iconic",
+  "label": "Iconic",
+  "category": "website",
+  "cover": {
+    "kind": "image",
+    "src": "/images/projects/iconic/cover/iconic-cover.webp",
+    "alt": "Iconic cover"
+  },
+  "gallery": []
+}

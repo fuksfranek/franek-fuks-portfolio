@@ -801,10 +801,15 @@ export default function PortfolioApp() {
 
   const project = projects[projectIndex]
   const gallery = project.gallery
-  const asset = gallery[assetIndex] ?? gallery[0]
+  const asset = gallery[assetIndex] ?? null
+  const hasGalleryAssets = gallery.length > 0
   const canStep = gallery.length > 1
 
   const runChromeSample = useCallback(() => {
+    if (!asset) {
+      setStageChromeTone('onLight')
+      return
+    }
     const presentationTone = stageToneFromPresentation(asset)
     if (presentationTone) {
       setStageChromeTone((prev) => (prev === presentationTone ? prev : presentationTone))
@@ -1338,7 +1343,7 @@ export default function PortfolioApp() {
   }, [runChromeSample])
 
   useEffect(() => {
-    if (asset.kind !== 'video') return
+    if (!asset || asset.kind !== 'video') return
     const el = stageMediaRef.current
     if (!(el instanceof HTMLVideoElement)) return
     const v = el
@@ -1385,6 +1390,7 @@ export default function PortfolioApp() {
   }, [gallery])
 
   useEffect(() => {
+    if (!asset) return
     if (!canStep) return
 
     /* Image: constant story duration (CSS keyframes drive the fill). */
@@ -1533,9 +1539,10 @@ export default function PortfolioApp() {
   )
 
   const stageLabel = useMemo(() => {
+    if (!hasGalleryAssets) return `${project.label} — no project assets`
     if (!canStep) return `${project.label} — 1 / 1`
     return `${project.label} — ${assetIndex + 1} / ${gallery.length}`
-  }, [assetIndex, canStep, gallery.length, project.label])
+  }, [assetIndex, canStep, gallery.length, hasGalleryAssets, project.label])
 
   const infoDescription = useMemo(
     () => splitProjectDescription(project.description ?? defaultProjectDescription),
@@ -1585,7 +1592,7 @@ export default function PortfolioApp() {
             }}
           >
             <div className="stageMedia">
-              {asset && (
+              {asset ? (
                 <Squircle
                   cornerRadius={Math.max(0, stageCornerRadius)}
                   cornerSmoothing={stageCornerRadius > 0.5 ? 1 : 0}
@@ -1602,6 +1609,10 @@ export default function PortfolioApp() {
                     cornerSmoothing={stageCornerRadius > 0.5 ? 1 : 0}
                   />
                 </Squircle>
+              ) : (
+                <div className="galleryStageEmpty" role="status" aria-label="No project assets yet">
+                  <span>No project assets yet</span>
+                </div>
               )}
               <div className="storyMeter" aria-hidden>
                 {gallery.map((slot, i) => {

@@ -1,0 +1,18 @@
+{
+  "order": 14,
+  "id": "shadow",
+  "label": "Shadow",
+  "category": "website",
+  "cover": {
+    "kind": "image",
+    "src": "/images/projects/shadow/cover/shadow-cover.png",
+    "alt": "Shadow cover"
+  },
+  "gallery": [
+    {
+      "kind": "video",
+      "src": "/images/projects/shadow/video/shadow-face-video.webm",
+      "poster": "/images/projects/shadow/cover/shadow.png"
+    }
+  ]
+}

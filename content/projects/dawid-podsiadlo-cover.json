@@ -1,0 +1,41 @@
+{
+  "order": 10,
+  "id": "dawid-podsiadlo-cover",
+  "label": "Pięknie Płyniesz",
+  "category": "Cover",
+  "cover": {
+    "kind": "image",
+    "src": "/images/projects/dawid-podsiadlo-cover/cover/dp-cover-pieknie-plyniesz.png",
+    "alt": "Dawid Podsiadło cover art"
+  },
+  "gallery": [
+    {
+      "kind": "image",
+      "src": "/images/projects/dawid-podsiadlo-cover/gallery/dp-cover-asset1-2.webp",
+      "alt": "dp-cover-asset1.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/dawid-podsiadlo-cover/gallery/dp-cover-asset2-2.webp",
+      "alt": "dp-cover-asset2.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/dawid-podsiadlo-cover/gallery/dp-cover-asset3-2.webp",
+      "alt": "dp-cover-asset3.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    }
+  ],
+  "description": "Cover design for the single of one of the biggest Polish artists Dawid Podsiadło, designed at OSOM Studios"
+}

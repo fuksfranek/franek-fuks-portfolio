@@ -1,0 +1,18 @@
+{
+  "order": 1,
+  "id": "osom-pictures",
+  "label": "OSOM Pictures",
+  "category": "Website",
+  "cover": {
+    "kind": "image",
+    "src": "/images/projects/osom-pictures/cover/pictures.png",
+    "alt": "OSOM Pictures cover"
+  },
+  "gallery": [
+    {
+      "kind": "video",
+      "src": "/images/projects/osom-pictures/video/osom-pictures-video1.mp4",
+      "poster": "/images/projects/osom-pictures/cover/pictures.png"
+    }
+  ]
+}

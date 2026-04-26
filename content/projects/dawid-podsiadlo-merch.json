@@ -1,0 +1,12 @@
+{
+  "order": 2,
+  "id": "dawid-podsiadlo-merch",
+  "label": "Dawid Podsiadło",
+  "category": "Merch",
+  "cover": {
+    "kind": "image",
+    "src": "/images/projects/dawid-podsiadlo-merch/cover/podsiad-merch.png",
+    "alt": "Dawid Podsiadło merch"
+  },
+  "gallery": []
+}

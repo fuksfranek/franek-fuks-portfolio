@@ -1,0 +1,12 @@
+{
+  "order": 12,
+  "id": "merrell-photoshoot",
+  "label": "Merrell",
+  "category": "Photoshoot",
+  "cover": {
+    "kind": "image",
+    "src": "/images/projects/merrell-photoshoot/cover/merrell.png",
+    "alt": "Merrell photoshoot cover"
+  },
+  "gallery": []
+}

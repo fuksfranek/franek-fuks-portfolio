@@ -1,0 +1,307 @@
+{
+  "aboveFoldCount": 12,
+  "teaserItemIds": [
+    "archive-2",
+    "archive-5",
+    "archive-10",
+    "archive-17"
+  ],
+  "items": [
+    {
+      "id": "archive-1",
+      "file": "archive-item31.webp",
+      "alt": "Archive 1",
+      "aspectW": 1179,
+      "aspectH": 2096,
+      "kind": "image"
+    },
+    {
+      "id": "archive-2",
+      "file": "archive-item5.webp",
+      "alt": "Archive 2",
+      "aspectW": 3024,
+      "aspectH": 4032,
+      "kind": "image"
+    },
+    {
+      "id": "archive-3",
+      "file": "archive-item8.webp",
+      "alt": "Archive 3",
+      "aspectW": 754,
+      "aspectH": 806,
+      "kind": "image"
+    },
+    {
+      "id": "archive-4",
+      "file": "archive-item16.webp",
+      "alt": "Archive 4",
+      "aspectW": 3024,
+      "aspectH": 4032,
+      "kind": "image"
+    },
+    {
+      "id": "archive-5",
+      "file": "archive-item6.webp",
+      "alt": "Archive 5",
+      "aspectW": 1892,
+      "aspectH": 1600,
+      "kind": "image"
+    },
+    {
+      "id": "archive-6",
+      "file": "archive-item29.webp",
+      "alt": "Archive 6",
+      "aspectW": 1440,
+      "aspectH": 1799,
+      "kind": "image"
+    },
+    {
+      "id": "archive-7",
+      "file": "archive-item15.webp",
+      "alt": "Archive 7",
+      "aspectW": 3024,
+      "aspectH": 4032,
+      "kind": "image"
+    },
+    {
+      "id": "archive-8",
+      "file": "archive-video-5.mp4",
+      "alt": "Archive 8",
+      "aspectW": 1080,
+      "aspectH": 1080,
+      "kind": "video"
+    },
+    {
+      "id": "archive-9",
+      "file": "archive-item30.webp",
+      "alt": "Archive 9",
+      "aspectW": 1440,
+      "aspectH": 1800,
+      "kind": "image"
+    },
+    {
+      "id": "archive-10",
+      "file": "archive-item17.webp",
+      "alt": "Archive 10",
+      "aspectW": 1051,
+      "aspectH": 828,
+      "kind": "image"
+    },
+    {
+      "id": "archive-11",
+      "file": "archive-video-3.mp4",
+      "alt": "Archive 11",
+      "aspectW": 1612,
+      "aspectH": 1080,
+      "kind": "video"
+    },
+    {
+      "id": "archive-12",
+      "file": "archive-item2.webp",
+      "alt": "Archive 12",
+      "aspectW": 1080,
+      "aspectH": 1350,
+      "kind": "image"
+    },
+    {
+      "id": "archive-13",
+      "file": "archive-item14.webp",
+      "alt": "Archive 13",
+      "aspectW": 3024,
+      "aspectH": 4032,
+      "kind": "image"
+    },
+    {
+      "id": "archive-14",
+      "file": "archive-item4.webp",
+      "alt": "Archive 14",
+      "aspectW": 2160,
+      "aspectH": 2160,
+      "kind": "image"
+    },
+    {
+      "id": "archive-15",
+      "file": "archive-item22.webp",
+      "alt": "Archive 15",
+      "aspectW": 1435,
+      "aspectH": 1104,
+      "kind": "image"
+    },
+    {
+      "id": "archive-16",
+      "file": "archive-item10.webp",
+      "alt": "Archive 16",
+      "aspectW": 1080,
+      "aspectH": 1350,
+      "kind": "image"
+    },
+    {
+      "id": "archive-17",
+      "file": "archive-item26.webp",
+      "alt": "Archive 17",
+      "aspectW": 3024,
+      "aspectH": 4032,
+      "kind": "image"
+    },
+    {
+      "id": "archive-18",
+      "file": "archive-video-6.mp4",
+      "alt": "Archive 18",
+      "aspectW": 1080,
+      "aspectH": 1350,
+      "kind": "video"
+    },
+    {
+      "id": "archive-19",
+      "file": "archive-item12.webp",
+      "alt": "Archive 19",
+      "aspectW": 1440,
+      "aspectH": 1440,
+      "kind": "image"
+    },
+    {
+      "id": "archive-20",
+      "file": "archive-item28.webp",
+      "alt": "Archive 20",
+      "aspectW": 3024,
+      "aspectH": 4032,
+      "kind": "image"
+    },
+    {
+      "id": "archive-21",
+      "file": "archive-video-4.mp4",
+      "alt": "Archive 21",
+      "aspectW": 1612,
+      "aspectH": 1080,
+      "kind": "video"
+    },
+    {
+      "id": "archive-22",
+      "file": "archive-item27.webp",
+      "alt": "Archive 22",
+      "aspectW": 3024,
+      "aspectH": 4032,
+      "kind": "image"
+    },
+    {
+      "id": "archive-23",
+      "file": "archive-item11.webp",
+      "alt": "Archive 23",
+      "aspectW": 1440,
+      "aspectH": 1800,
+      "kind": "image"
+    },
+    {
+      "id": "archive-24",
+      "file": "archive-item1.webp",
+      "alt": "Archive 24",
+      "aspectW": 2048,
+      "aspectH": 2560,
+      "kind": "image"
+    },
+    {
+      "id": "archive-25",
+      "file": "archive-item19.webp",
+      "alt": "Archive 25",
+      "aspectW": 850,
+      "aspectH": 530,
+      "kind": "image"
+    },
+    {
+      "id": "archive-26",
+      "file": "archive-item25.webp",
+      "alt": "Archive 26",
+      "aspectW": 3024,
+      "aspectH": 4032,
+      "kind": "image"
+    },
+    {
+      "id": "archive-27",
+      "file": "archive-item20.webp",
+      "alt": "Archive 27",
+      "aspectW": 550,
+      "aspectH": 604,
+      "kind": "image"
+    },
+    {
+      "id": "archive-28",
+      "file": "archive-item9.webp",
+      "alt": "Archive 28",
+      "aspectW": 2160,
+      "aspectH": 2700,
+      "kind": "image"
+    },
+    {
+      "id": "archive-29",
+      "file": "archive-item23.webp",
+      "alt": "Archive 29",
+      "aspectW": 836,
+      "aspectH": 1157,
+      "kind": "image"
+    },
+    {
+      "id": "archive-30",
+      "file": "archive-video-7.mp4",
+      "alt": "Archive 30",
+      "aspectW": 1548,
+      "aspectH": 1080,
+      "kind": "video"
+    },
+    {
+      "id": "archive-31",
+      "file": "archive-video-2.mp4",
+      "alt": "Archive 31",
+      "aspectW": 1080,
+      "aspectH": 1080,
+      "kind": "video"
+    },
+    {
+      "id": "archive-32",
+      "file": "archive-item24.webp",
+      "alt": "Archive 32",
+      "aspectW": 3024,
+      "aspectH": 4032,
+      "kind": "image"
+    },
+    {
+      "id": "archive-33",
+      "file": "archive-item21.webp",
+      "alt": "Archive 33",
+      "aspectW": 409,
+      "aspectH": 322,
+      "kind": "image"
+    },
+    {
+      "id": "archive-34",
+      "file": "archive-item18.webp",
+      "alt": "Archive 34",
+      "aspectW": 3240,
+      "aspectH": 3240,
+      "kind": "image"
+    },
+    {
+      "id": "archive-35",
+      "file": "archive-item3.webp",
+      "alt": "Archive 35",
+      "aspectW": 1440,
+      "aspectH": 1799,
+      "kind": "image"
+    },
+    {
+      "id": "archive-36",
+      "file": "archive-item13.webp",
+      "alt": "Archive 36",
+      "aspectW": 1179,
+      "aspectH": 2556,
+      "kind": "image"
+    },
+    {
+      "id": "archive-37",
+      "file": "archive-item7.webp",
+      "alt": "Archive 37",
+      "aspectW": 1276,
+      "aspectH": 924,
+      "kind": "image"
+    }
+  ]
+}

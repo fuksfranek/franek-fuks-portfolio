@@ -1,0 +1,12 @@
+{
+  "order": 4,
+  "id": "pro8l3m-instrumentals-cover",
+  "label": "PRO8L3M",
+  "category": "Packaging",
+  "cover": {
+    "kind": "image",
+    "src": "/images/projects/pro8l3m-instrumentals-cover/cover/pro8l3m.png",
+    "alt": "PRO8L3M Instrumentals cover"
+  },
+  "gallery": []
+}

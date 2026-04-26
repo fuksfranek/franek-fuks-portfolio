@@ -6,6 +6,8 @@ Folder layout per project:
 - `cover/` -> one cover image or cover video poster
 - `gallery/` -> fullscreen images in display order
 - `video/` -> video files used in cover/gallery
+- `posters/` -> poster frames for videos when they are not the cover
+- `backgrounds/` -> optional framed-media background images
 
 Recommended naming:
 - `cover.jpg` or `cover.webp`
@@ -23,4 +25,6 @@ Once you add files, tell me:
 3. The gallery order
 4. Any alt text you want
 
-Then I will wire everything in `src/data/projects.ts`.
+Then update the matching file in `content/projects/`. The app normalizes those
+JSON files through `src/data/projects.ts`, including fill/framed presentation
+settings, generated cover frames, and the shared project asset cache buster.

@@ -1,0 +1,12 @@
+{
+  "order": 8,
+  "id": "soon",
+  "label": "Soon",
+  "category": "art direction",
+  "cover": {
+    "kind": "image",
+    "src": "/images/projects/soon/cover/soon-2.png",
+    "alt": "Soon cover"
+  },
+  "gallery": []
+}

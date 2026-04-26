@@ -1,0 +1,18 @@
+{
+  "order": 13,
+  "id": "sr005-tonik-speedrun",
+  "label": "tonik sr005",
+  "category": "website",
+  "cover": {
+    "kind": "image",
+    "src": "/images/projects/sr005-tonik-speedrun/cover/sr005-2.png",
+    "alt": "SR005 Tonik Speedrun cover"
+  },
+  "gallery": [
+    {
+      "kind": "video",
+      "src": "/images/projects/sr005-tonik-speedrun/video/Tonik%20SR005%20Full%20Video.mp4",
+      "poster": "/images/projects/sr005-tonik-speedrun/cover/sr005.png"
+    }
+  ]
+}

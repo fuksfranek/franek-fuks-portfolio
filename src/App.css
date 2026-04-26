@@ -180,6 +180,25 @@
   pointer-events: none;
 }
 
+.galleryStageEmpty {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  background: var(--stage-bg);
+  color: rgba(16, 22, 31, 0.46);
+  font: 500 14px/21px Inter, Helvetica, Arial, sans-serif;
+  letter-spacing: -0.011em;
+  pointer-events: none;
+}
+
+.galleryStageEmpty span {
+  border-radius: 999px;
+  padding: 0.625rem 0.875rem;
+  background: rgba(16, 22, 31, 0.055);
+  box-shadow: inset 0 0 0 1px rgba(16, 22, 31, 0.07);
+}
+
 .galleryStageLayer {
   --stage-framed-padding: clamp(2rem, 7vw, 6.5rem);
   --stage-framed-bg: #f4f0ea;
@@ -944,7 +963,7 @@
   --rail-hint-gap: var(--space-4);
   --rail-card-enter-y: 0;
   --rail-card-hover-scale: 1.045;
-  --rail-card-selected-scale: 1;
+  --rail-card-selected-scale: 0.96;
   --rail-card-state-duration: 220ms;
   --rail-card-state-ease: cubic-bezier(0.16, 1, 0.3, 1);
   --rail-card-shadow-rest: var(--shadow-surface);
@@ -1381,37 +1400,37 @@
 }
 
 .card--open .thumbMedia {
-  opacity: 0.5;
+  filter: blur(4px);
 }
 
 .cardSelectedIcon {
   position: absolute;
-  top: 50%;
-  left: 50%;
+  top: var(--space-5);
+  left: var(--space-5);
   z-index: 3;
   display: inline-flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: var(--space-1);
+  gap: 5px;
   color: #ffffff;
   opacity: 0;
-  transform: translate(-50%, -50%) scale(0.92);
+  transform: translateY(4px) scale(0.96);
   transition:
     opacity var(--rail-card-state-duration, 220ms) ease,
     transform var(--rail-card-state-duration, 220ms) var(--rail-card-state-ease);
-  filter: drop-shadow(0 1px 8px rgba(0, 0, 0, 0.38));
+  filter: drop-shadow(0 1px 8px rgba(0, 0, 0, 0.28));
   pointer-events: none;
 }
 
 .card--open .cardSelectedIcon {
   opacity: 1;
-  transform: translate(-50%, -50%) scale(1);
+  transform: translateY(0) scale(1);
 }
 
 .cardSelectedIcon svg {
   display: block;
-  width: 24px;
-  height: 24px;
+  width: 16px;
+  height: 16px;
 }
 
 .cardHoverIcon {
@@ -1442,7 +1461,7 @@
   display: block;
   font-family: var(--font-ui);
   font-size: 1rem;
-  line-height: var(--line-height);
+  line-height: 1.15;
   font-weight: 600;
   letter-spacing: -0.011em;
   white-space: nowrap;
@@ -1503,7 +1522,7 @@
 }
 
 .card--open .cardLabel {
-  opacity: 0;
+  opacity: 1;
 }
 
 .railHint {

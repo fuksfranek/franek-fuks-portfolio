@@ -1,0 +1,39 @@
+{
+  "order": 3,
+  "id": "one-way",
+  "label": "ONE-WAY",
+  "category": "Book + Web + Art",
+  "description": "One-way follows a single direction through image, type, and rhythm so the piece reads as one continuous gesture rather than isolated frames. The work grew out of print and motion studies that were folded into a single narrative arc.",
+  "cover": {
+    "kind": "image",
+    "src": "/images/projects/one-way/cover/one-way-2.png",
+    "alt": "One-way cover"
+  },
+  "gallery": [
+    {
+      "kind": "video",
+      "src": "/images/projects/one-way/video/One%20Way%20Full%20Video.mp4",
+      "poster": "/images/projects/one-way/cover/one-way.png",
+      "presentation": {
+        "mode": "framed",
+        "background": {
+          "kind": "color",
+          "value": "#f3eadf"
+        },
+        "padding": "clamp(2rem, 7vw, 6.5rem)",
+        "mediaFit": "contain",
+        "objectPosition": "center",
+        "shadow": "soft"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/one-way/gallery/3-2.jpg",
+      "alt": "3.jpg",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    }
+  ]
+}

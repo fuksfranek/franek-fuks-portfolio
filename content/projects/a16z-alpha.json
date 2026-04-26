@@ -1,0 +1,12 @@
+{
+  "order": 11,
+  "id": "a16z-alpha",
+  "label": "a16z Alpha",
+  "category": "Website + Brand",
+  "cover": {
+    "kind": "image",
+    "src": "/images/projects/a16z-alpha/cover/alpha.png",
+    "alt": "a16z Alpha cover"
+  },
+  "gallery": []
+}

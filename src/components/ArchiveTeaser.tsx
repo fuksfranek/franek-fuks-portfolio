@@ -1,5 +1,5 @@
 import { useCallback, type CSSProperties } from 'react'
-import { archiveItems } from '../data/archivePlaceholders'
+import { archiveAboveFoldCount, archiveItems, archiveTeaserItems } from '../data/archivePlaceholders'
 import { preloadArchiveImages } from '../lib/archivePreload'
 
 type ArchiveTeaserProps = {
@@ -7,12 +7,9 @@ type ArchiveTeaserProps = {
   style?: CSSProperties
 }
 
-const aboveFoldSrcs = archiveItems.slice(0, 12).map((item) => item.src)
-const restSrcs = archiveItems.slice(12).map((item) => item.src)
-const stackImages = archiveItems
-  .filter((item) => item.kind === 'image')
-  .filter((_, index) => [1, 4, 8, 14].includes(index))
-  .map((item) => item.src)
+const aboveFoldSrcs = archiveItems.slice(0, archiveAboveFoldCount).map((item) => item.src)
+const restSrcs = archiveItems.slice(archiveAboveFoldCount).map((item) => item.src)
+const stackImages = archiveTeaserItems.map((item) => item.src)
 
 export function ArchiveTeaser({ onNavigate, style }: ArchiveTeaserProps) {
   /* Race the bytes on intent so click-to-open is instant. */

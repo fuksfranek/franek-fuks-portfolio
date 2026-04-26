@@ -11,7 +11,7 @@ import { Squircle } from '@squircle-js/react'
 import { ProjectInfoBody } from '../ProjectInfoBody'
 import { SquircleMediaStroke } from '../SquircleMediaStroke'
 import type { ArchiveItem } from '../data/archivePlaceholders'
-import { archiveItems } from '../data/archivePlaceholders'
+import { archiveAboveFoldCount, archiveItems } from '../data/archivePlaceholders'
 import type { ArchivePlainRect } from '../lib/archiveGeometry'
 import { preloadArchiveImages } from '../lib/archivePreload'
 import '../ArchivePage.css'
@@ -49,7 +49,7 @@ function distributeIntoColumns(
   return buckets.map((b) => b.cells)
 }
 
-const ABOVE_FOLD_COUNT = 12
+const ABOVE_FOLD_COUNT = archiveAboveFoldCount
 const aboveFoldSrcs = archiveItems.slice(0, ABOVE_FOLD_COUNT).map((item) => item.src)
 const restSrcs = archiveItems.slice(ABOVE_FOLD_COUNT).map((item) => item.src)
 const ARCHIVE_RUBBER_MAX_PX = 44

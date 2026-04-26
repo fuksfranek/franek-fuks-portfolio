@@ -1,6 +1,7 @@
 # Archive Drop Zone
 
-Dump every archive image into this folder. The masonry grid currently shows 25 colored placeholders (`src/data/archivePlaceholders.ts`) — once files are here I'll wire them in.
+Dump every archive image or video into this folder. The masonry grid is wired
+from `content/archive.json`.
 
 ## Layout
 
@@ -23,11 +24,14 @@ Flat folder, one file per tile:
 
 The grid is a Pinterest-style masonry — any aspect works. If you want a specific tile to land in a specific column, mention it when handing off.
 
-## Once you've dumped files, tell me
+## Once you've dumped files, update
 
-1. Display order (or "use filename order")
-2. Optional alt text per image (or "skip alt")
-3. Which three should be the teaser stack on the rail (currently the first three colors)
-4. Any image you want as a featured/hero tile
+1. Display order in `content/archive.json`
+2. Alt text per item
+3. `aspectW` and `aspectH` using the real media dimensions
+4. `teaserItemIds` for the rail teaser stack
+5. `aboveFoldCount` if the preload cutoff should change
 
-Then I'll replace `archivePlaceholders.ts` with real entries and swap the colored swatches for `<img>` tags in the masonry + lightbox.
+`src/data/archivePlaceholders.ts` now only normalizes that content file for the
+app. Teaser picks are explicit IDs, so reordering the archive no longer changes
+the rail teaser by accident.

@@ -1,0 +1,12 @@
+{
+  "order": 7,
+  "id": "grailpoint-stay-fly",
+  "label": "Grailpoint — Stay Fly",
+  "category": "art direction",
+  "cover": {
+    "kind": "image",
+    "src": "/images/projects/grailpoint-stay-fly/cover/stay-fly.png",
+    "alt": "Grailpoint Stay Fly cover"
+  },
+  "gallery": []
+}
