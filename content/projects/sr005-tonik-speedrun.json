@@ -10,9 +10,49 @@
   },
   "gallery": [
     {
-      "kind": "video",
-      "src": "/images/projects/sr005-tonik-speedrun/video/Tonik%20SR005%20Full%20Video.mp4",
-      "poster": "/images/projects/sr005-tonik-speedrun/cover/sr005.png"
+      "kind": "image",
+      "src": "/images/projects/sr005-tonik-speedrun/gallery/sr005-tonik-asset1.webp",
+      "alt": "sr005-tonik-asset1.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/sr005-tonik-speedrun/gallery/sr005-tonik-asset2.webp",
+      "alt": "sr005-tonik-asset2.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/sr005-tonik-speedrun/gallery/sr005-tonik-asset3.webp",
+      "alt": "sr005-tonik-asset3.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/sr005-tonik-speedrun/gallery/sr005-tonik-asset4.webp",
+      "alt": "sr005-tonik-asset4.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/sr005-tonik-speedrun/gallery/sr005-tonik-asset5.webp",
+      "alt": "sr005-tonik-asset5.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
     }
   ]
 }

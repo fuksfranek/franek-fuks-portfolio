@@ -22,6 +22,18 @@ import { Squircle } from '@squircle-js/react'
 import { ArchiveSheet } from './components/ArchiveSheet'
 import { ArchiveTeaser } from './components/ArchiveTeaser'
 import { easeViewInset } from './lib/easeViewInset'
+import {
+  GENIE_FLIGHT_TIMING,
+  startGenieFlight,
+  type GenieFlightRequest,
+  type RectSnapshot,
+} from './lib/genieFlight'
+import {
+  preloadImage,
+  preloadVideo,
+  shouldAggressivelyPreloadVideo,
+  useResolvedVideoSrc,
+} from './lib/mediaPreload'
 import type { StageChromeTone } from './lib/stageChromeSampling'
 import { relativeLuminance, sampleStageChromeTone } from './lib/stageChromeSampling'
 import '@blossom-carousel/core/style.css'
@@ -90,6 +102,66 @@ function stageLayerStyle(media: Media): React.CSSProperties | undefined {
   return style
 }
 
+function mediaPreviewSrc(media: Media): string | null {
+  if (media.kind === 'image') return media.src
+  return media.poster ?? null
+}
+
+type GenieFlight = GenieFlightRequest & {
+  id: number
+}
+
+function snapshotRect(rect: DOMRect): RectSnapshot {
+  return {
+    left: rect.left,
+    top: rect.top,
+    width: rect.width,
+    height: rect.height,
+  }
+}
+
+function GenieProjectFlight({
+  flight,
+  onDone,
+  onStageProgress,
+}: {
+  flight: GenieFlight | null
+  onDone: (id: number) => void
+  onStageProgress: (progress: number) => void
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+
+  useLayoutEffect(() => {
+    if (!flight) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const handle = startGenieFlight({
+      canvas,
+      request: flight,
+      radius: PROJECT_MEDIA_RADIUS,
+      onStageProgress,
+      onDone: () => onDone(flight.id),
+    })
+
+    return () => {
+      handle.cancel()
+    }
+  }, [flight, onDone, onStageProgress])
+
+  if (!flight) return null
+
+  return createPortal(
+    <canvas
+      key={flight.id}
+      ref={canvasRef}
+      className="genieProjectFlight"
+      aria-hidden
+    />,
+    document.body,
+  )
+}
+
 function toneFromHexColor(value: string): StageChromeTone | null {
   const hex = value.trim().replace(/^#/, '')
   const full =
@@ -112,64 +184,6 @@ function stageToneFromPresentation(media: Media): StageChromeTone | null {
   const background = presentation.background
   if (background?.kind !== 'color') return null
   return toneFromHexColor(background.value)
-}
-
-/**
- * Some gallery WebMs ship without a duration in the EBML header, so `<video>.duration`
- * reports `Infinity` until the file is fully scanned. Serving a `blob:` URL of the
- * fully-buffered bytes makes `duration` finite on `loadedmetadata` and unblocks the
- * story-meter. Cached per src so a second visit is free.
- */
-const videoBlobCache = new Map<string, string>()
-const videoBlobInflight = new Map<string, Promise<string>>()
-
-function loadVideoAsBlobUrl(src: string): Promise<string> {
-  const cached = videoBlobCache.get(src)
-  if (cached) return Promise.resolve(cached)
-  const inflight = videoBlobInflight.get(src)
-  if (inflight) return inflight
-  const p = fetch(src, { credentials: 'same-origin' })
-    .then((res) => {
-      if (!res.ok) throw new Error(`Video fetch failed: ${res.status} ${src}`)
-      return res.blob()
-    })
-    .then((blob) => {
-      const url = URL.createObjectURL(blob)
-      videoBlobCache.set(src, url)
-      videoBlobInflight.delete(src)
-      return url
-    })
-    .catch((err) => {
-      videoBlobInflight.delete(src)
-      throw err
-    })
-  videoBlobInflight.set(src, p)
-  return p
-}
-
-/** Resolves to a stable blob URL for the video; falls back to direct src on fetch failure. */
-function useResolvedVideoSrc(src: string, enabled: boolean): string | undefined {
-  const [resolved, setResolved] = useState<{ src: string; url: string } | null>(() => {
-    const cached = enabled ? videoBlobCache.get(src) : undefined
-    return cached ? { src, url: cached } : null
-  })
-  useEffect(() => {
-    if (!enabled) return
-    const cached = videoBlobCache.get(src)
-    let cancelled = false
-    const load = cached ? Promise.resolve(cached) : loadVideoAsBlobUrl(src)
-    load
-      .then((url) => {
-        if (!cancelled) setResolved({ src, url })
-      })
-      .catch(() => {
-        if (!cancelled) setResolved({ src, url: src })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [src, enabled])
-  return enabled && resolved?.src === src ? resolved.url : undefined
 }
 
 const MediaView = forwardRef<
@@ -249,8 +263,8 @@ const MediaView = forwardRef<
  * screen — the user never sees the squircle background through a
  * transparent layer.
  *
- * Crossfade duration lives in App.css on `.galleryStageLayer` (currently
- * 320ms ease-out); JS doesn't need to know it because both slots transition
+ * Crossfade timing lives in App.css on `.galleryStageLayer`; JS doesn't need
+ * to know it because both slots transition
  * via CSS in lockstep.
  * ───────────────────────────────────────────────────────── */
 
@@ -747,6 +761,8 @@ export default function PortfolioApp() {
   const [stageCornerRadius, setStageCornerRadius] = useState(0)
   const [archiveSheetMounted, setArchiveSheetMounted] = useState(false)
   const [shellSheetState, setShellSheetState] = useState<'idle' | 'pushed' | 'recovering'>('idle')
+  const flightIdRef = useRef(0)
+  const [genieFlight, setGenieFlight] = useState<GenieFlight | null>(null)
 
   const navigate = useNavigate()
   const location = useLocation()
@@ -849,8 +865,66 @@ export default function PortfolioApp() {
     dispatch({ type: 'nextProject' })
   }, [])
 
-  const selectProject = useCallback((index: number) => {
-    dispatch({ type: 'selectProject', index })
+  const warmProjectPreview = useCallback((index: number) => {
+    const nextProject = projects[clampProjectIndex(index)]
+    const coverSrc = mediaPreviewSrc(nextProject.cover)
+    if (coverSrc) preloadImage(coverSrc)
+
+    for (const entry of nextProject.gallery.slice(0, 2)) {
+      const src = mediaPreviewSrc(entry)
+      if (src) preloadImage(src)
+    }
+  }, [])
+
+  const selectProject = useCallback(
+    (index: number, sourceEl?: HTMLElement | null) => {
+      const nextIndex = clampProjectIndex(index)
+      const sourceRect = sourceEl?.getBoundingClientRect()
+      const destinationRect = stageWrapRef.current?.getBoundingClientRect()
+      const nextProject = projects[nextIndex]
+      const coverSrc = mediaPreviewSrc(nextProject.cover)
+      const revealSrc = nextProject.gallery[0] ? mediaPreviewSrc(nextProject.gallery[0]) : null
+      const reducedMotion =
+        typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+      if (
+        nextIndex !== projectIndex &&
+        sourceRect &&
+        destinationRect &&
+        coverSrc &&
+        !reducedMotion
+      ) {
+        preloadImage(coverSrc)
+        if (revealSrc) preloadImage(revealSrc)
+        setGenieFlight({
+          id: ++flightIdRef.current,
+          coverSrc,
+          revealSrc,
+          source: snapshotRect(sourceRect),
+          destination: snapshotRect(destinationRect),
+        })
+      }
+
+      dispatch({ type: 'selectProject', index: nextIndex })
+    },
+    [projectIndex],
+  )
+
+  const finishGenieFlight = useCallback((id: number) => {
+    setGenieFlight((current) => (current?.id === id ? null : current))
+  }, [])
+
+  const updateGenieStageProgress = useCallback((progress: number) => {
+    const shell = shellRef.current
+    if (!shell) return
+    const p = Math.max(0, Math.min(1, progress))
+    shell.style.setProperty('--genie-stage-opacity', String(0.01 + p * 0.99))
+    shell.style.setProperty('--genie-stage-scale', String(0.985 + p * 0.015))
+    shell.style.setProperty('--genie-stage-blur', `${((1 - p) * 3).toFixed(3)}px`)
+    shell.style.setProperty(
+      '--genie-rail-gap-delay',
+      `${Math.round(GENIE_FLIGHT_TIMING.durationMs * GENIE_FLIGHT_TIMING.stageRevealEnd)}ms`,
+    )
   }, [])
 
   const openInfo = useCallback(() => {
@@ -976,7 +1050,8 @@ export default function PortfolioApp() {
     if (!rail) return
 
     const railRect = rail.getBoundingClientRect()
-    const railCenter = railRect.left + railRect.width / 2
+    const stageRect = stageWrapRef.current?.getBoundingClientRect()
+    const focusX = stageRect ? stageRect.left + stageRect.width / 2 : railRect.left + railRect.width / 2
     const slides = Array.from(rail.children).filter((child): child is HTMLElement =>
       child.matches('.card, .archiveTeaser'),
     )
@@ -987,14 +1062,14 @@ export default function PortfolioApp() {
         return {
           slide,
           index,
-          distance: Math.abs(rect.left + rect.width / 2 - railCenter),
+          distance: Math.abs(rect.left + rect.width / 2 - focusX),
         }
       })
       .sort((a, b) => a.distance - b.distance || a.index - b.index)
       .forEach(({ slide }, rank) => {
         slide.style.setProperty('--rail-enter-rank', String(rank))
       })
-  }, [isInfoOpen])
+  }, [isInfoOpen, projectIndex])
 
   useEffect(() => {
     if (!isInfoOpen) return
@@ -1374,20 +1449,46 @@ export default function PortfolioApp() {
     }
   }, [asset, runChromeSample, stageMediaTick])
 
-  /* Preload the whole gallery so step-through swaps are seamless: decoded
-     bytes for stills, blob-URL'd buffers for videos (so duration is finite
-     and playback starts immediately when reached). */
+  /* Warm adjacent slides first; full-video blob prefetch only when connection allows. */
   useEffect(() => {
-    for (const entry of gallery) {
+    const aggressiveVideo = shouldAggressivelyPreloadVideo()
+    const priority = new Set(
+      [0, assetIndex, assetIndex + 1, assetIndex - 1]
+        .map((index) => (gallery.length ? (index + gallery.length) % gallery.length : -1))
+        .filter((index) => index >= 0),
+    )
+
+    const warm = (entry: Media, includeVideoBlob: boolean) => {
       if (entry.kind === 'image') {
-        const image = new Image()
-        image.decoding = 'async'
-        image.src = entry.src
-      } else {
-        void loadVideoAsBlobUrl(entry.src).catch(() => {})
+        preloadImage(entry.src)
+        return
       }
+      if (entry.poster) preloadImage(entry.poster)
+      if (includeVideoBlob && aggressiveVideo) preloadVideo(entry.src)
     }
-  }, [gallery])
+
+    for (const index of priority) {
+      const entry = gallery[index]
+      if (entry) warm(entry, true)
+    }
+
+    const backlog = gallery.filter((_, index) => !priority.has(index))
+    let cancelled = false
+    let timer = 0
+    const drain = () => {
+      if (cancelled) return
+      const entry = backlog.shift()
+      if (!entry) return
+      warm(entry, false)
+      timer = window.setTimeout(drain, 90)
+    }
+    timer = window.setTimeout(drain, 160)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [assetIndex, gallery])
 
   useEffect(() => {
     if (!asset) return
@@ -1571,7 +1672,7 @@ export default function PortfolioApp() {
       ref={shellRef}
       className={`shell ${isInfoOpen ? 'shell--info' : ''} ${isAboutOpen ? 'shell--about' : ''} ${
         stageChromeTone === 'onLight' ? 'shell--chrome-on-light' : 'shell--chrome-on-dark'
-      } ${sheetShellClass}`}
+      } ${genieFlight ? 'shell--genie-flight' : ''} ${sheetShellClass}`}
       aria-hidden={archiveOpen}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
@@ -1579,6 +1680,32 @@ export default function PortfolioApp() {
     >
       <div className="fullBleed">
         <div className="fullBleedInner">
+          <aside
+            id="project-info-panel"
+            ref={projectInfoPanelRef}
+            className="projectInfoPanel"
+            aria-hidden={!isInfoOpen}
+          >
+            <div className="projectInfoInner">
+              <div className="projectInfoHead">
+                <h2 className="projectInfoTitle" data-info-reveal="block">
+                  {project.label}
+                </h2>
+              </div>
+              <ProjectInfoBody
+                key={`${project.id}-desc-0`}
+                className="projectInfoBody"
+                text={infoDescription[0]}
+              />
+              {infoDescription[1] ? (
+                <ProjectInfoBody
+                  key={`${project.id}-desc-1`}
+                  className="projectInfoBody"
+                  text={infoDescription[1]}
+                />
+              ) : null}
+            </div>
+          </aside>
           <section
             className="stageMediaWrap"
             ref={stageWrapRef}
@@ -1610,9 +1737,17 @@ export default function PortfolioApp() {
                   />
                 </Squircle>
               ) : (
-                <div className="galleryStageEmpty" role="status" aria-label="No project assets yet">
-                  <span>No project assets yet</span>
-                </div>
+                <Squircle
+                  cornerRadius={Math.max(0, stageCornerRadius)}
+                  cornerSmoothing={stageCornerRadius > 0.5 ? 1 : 0}
+                  className="stageMediaSquircle"
+                >
+                  <div className="galleryStageEmpty" role="img" aria-label={`${project.label} placeholder`} />
+                  <SquircleMediaStroke
+                    cornerRadius={Math.max(0, stageCornerRadius)}
+                    cornerSmoothing={stageCornerRadius > 0.5 ? 1 : 0}
+                  />
+                </Squircle>
               )}
               <div className="storyMeter" aria-hidden>
                 {gallery.map((slot, i) => {
@@ -1637,32 +1772,6 @@ export default function PortfolioApp() {
               </div>
             </div>
           </section>
-          <aside
-            id="project-info-panel"
-            ref={projectInfoPanelRef}
-            className="projectInfoPanel"
-            aria-hidden={!isInfoOpen}
-          >
-            <div className="projectInfoInner">
-              <div className="projectInfoHead">
-                <h2 className="projectInfoTitle" data-info-reveal="block">
-                  {project.label}
-                </h2>
-              </div>
-              <ProjectInfoBody
-                key={`${project.id}-desc-0`}
-                className="projectInfoBody"
-                text={infoDescription[0]}
-              />
-              {infoDescription[1] ? (
-                <ProjectInfoBody
-                  key={`${project.id}-desc-1`}
-                  className="projectInfoBody"
-                  text={infoDescription[1]}
-                />
-              ) : null}
-            </div>
-          </aside>
         </div>
       </div>
 
@@ -1684,11 +1793,6 @@ export default function PortfolioApp() {
       )}
 
       <header className="topBar">
-        <div className="topRight">
-          <span className="projectTitle" aria-hidden={isInfoOpen || isAboutOpen}>
-            {project.label}
-          </span>
-        </div>
         <div className="topBarLead">
           <p className="identity" aria-hidden={isAboutOpen}>
             fuksfranek
@@ -1728,6 +1832,11 @@ export default function PortfolioApp() {
               </svg>
             </span>
           </button>
+        </div>
+        <div className="topRight">
+          <span className="projectTitle" aria-hidden={isInfoOpen || isAboutOpen}>
+            {project.label}
+          </span>
         </div>
       </header>
 
@@ -1783,7 +1892,16 @@ export default function PortfolioApp() {
                     } as React.CSSProperties
                   }
                   data-state={open ? 'open' : 'default'}
-                  onClick={() => selectProject(i)}
+                  data-project-index={i}
+                  tabIndex={open && isInfoOpen ? -1 : undefined}
+                  onClick={(e) => {
+                    e.currentTarget.blur()
+                    const thumb = e.currentTarget.querySelector<HTMLElement>('.thumb')
+                    selectProject(i, thumb ?? e.currentTarget)
+                  }}
+                  onPointerEnter={() => warmProjectPreview(i)}
+                  onFocus={() => warmProjectPreview(i)}
+                  onTouchStart={() => warmProjectPreview(i)}
                   aria-current={open ? 'true' : undefined}
                   aria-label={`${p.label}, ${p.category}${open ? ', current project' : ''}`}
                 >
@@ -1792,6 +1910,28 @@ export default function PortfolioApp() {
                     cornerSmoothing={1}
                     className="thumb"
                   >
+                    <span className="thumbGalleryStack" aria-hidden>
+                      {p.gallery.map((media, galleryIndex) => {
+                        const src = mediaPreviewSrc(media)
+                        if (!src) return null
+                        return (
+                          <img
+                            key={`${p.id}-thumb-gallery-${galleryIndex}`}
+                            className={`thumbGalleryLayer ${galleryIndex === 0 ? 'thumbGalleryLayer--primary' : ''}`}
+                            src={src}
+                            alt=""
+                            draggable={false}
+                            decoding="async"
+                            loading="lazy"
+                            style={
+                              {
+                                '--thumb-gallery-index': galleryIndex,
+                              } as React.CSSProperties
+                            }
+                          />
+                        )
+                      })}
+                    </span>
                     <MediaView media={p.cover} fit="cover" className="thumbMedia" variant="thumb" />
                     <SquircleMediaStroke cornerRadius={PROJECT_MEDIA_RADIUS} cornerSmoothing={1} />
                     <span className="cardSelectedIcon" aria-hidden>
@@ -1888,6 +2028,12 @@ export default function PortfolioApp() {
             document.body,
           )
         : null}
+
+      <GenieProjectFlight
+        flight={genieFlight}
+        onDone={finishGenieFlight}
+        onStageProgress={updateGenieStageProgress}
+      />
 
       <p className="visuallyHidden" aria-live="polite">
         {stageLabel}

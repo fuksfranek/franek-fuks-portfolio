@@ -38,10 +38,15 @@ export function ArchiveTeaser({ onNavigate, style }: ArchiveTeaserProps) {
               className={`archiveTeaserCard archiveTeaserCard--${index + 1}`}
             >
               <img src={src} alt="" draggable={false} decoding="async" loading="lazy" />
+              {index === stackImages.length - 1 ? (
+                <span className="archiveTeaserLabel cardLabel">
+                  <span className="cardLabelTitle">CD archive</span>
+                  <span className="cardLabelCategory">Archive</span>
+                </span>
+              ) : null}
             </span>
           ))}
         </span>
-        <span className="archiveTeaserLabel">see the archive</span>
       </div>
     </button>
   )

@@ -10,9 +10,49 @@
   },
   "gallery": [
     {
-      "kind": "video",
-      "src": "/images/projects/shadow/video/shadow-face-video.webm",
-      "poster": "/images/projects/shadow/cover/shadow.png"
+      "kind": "image",
+      "src": "/images/projects/shadow/gallery/shadow-1.jpg",
+      "alt": "shadow-1.jpg",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/shadow/gallery/shadow-3.jpg",
+      "alt": "shadow-3.jpg",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/shadow/gallery/shadow-4.jpg",
+      "alt": "shadow-4.jpg",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/shadow/gallery/shadow-5.jpg",
+      "alt": "shadow-5.jpg",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/shadow/gallery/shadow-6.jpg",
+      "alt": "shadow-6.jpg",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
     }
   ]
 }

@@ -117,7 +117,7 @@
 
 .stageMediaWrap {
   position: relative;
-  /* 0% basis with panel + stage — no flex transition here; easing padding + panel only keeps the right edge one smooth motion */
+  /* 0% basis with panel + stage — no flex transition here; easing padding + panel only keeps the shared inner edge one smooth motion */
   flex: 1 1 0;
   min-width: 0;
   border-radius: 0;
@@ -138,6 +138,18 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  transform-origin: center center;
+  transition:
+    opacity 150ms ease,
+    transform 280ms var(--ease-genie-secondary, var(--ease-view-inset));
+}
+
+.shell--genie-flight .stageMediaSquircle {
+  opacity: var(--genie-stage-opacity, 0.01);
+  transform: scale(var(--genie-stage-scale, 0.985));
+  filter: blur(var(--genie-stage-blur, 3px));
+  transition: none;
+  will-change: opacity, transform, filter;
 }
 
 /* Squircle-aligned stroke: src/SquircleMediaStroke.tsx (same path as @squircle-js/react) */
@@ -181,22 +193,11 @@
 }
 
 .galleryStageEmpty {
-  display: grid;
   width: 100%;
   height: 100%;
-  place-items: center;
-  background: var(--stage-bg);
-  color: rgba(16, 22, 31, 0.46);
-  font: 500 14px/21px Inter, Helvetica, Arial, sans-serif;
-  letter-spacing: -0.011em;
+  display: block;
+  background: #d8d8d8;
   pointer-events: none;
-}
-
-.galleryStageEmpty span {
-  border-radius: 999px;
-  padding: 0.625rem 0.875rem;
-  background: rgba(16, 22, 31, 0.055);
-  box-shadow: inset 0 0 0 1px rgba(16, 22, 31, 0.07);
 }
 
 .galleryStageLayer {
@@ -213,10 +214,14 @@
   pointer-events: none;
   user-select: none;
   backface-visibility: hidden;
-  /* Crossfade lives entirely on opacity — both slots transition together
-     so a promote feels like a single, soft handoff rather than two stages. */
-  transition: opacity 320ms cubic-bezier(0.22, 0.61, 0.36, 1);
-  will-change: opacity;
+  /* Crossfade keeps both decoded slots composited and adds a small blur/scale
+     mask so image changes feel softer without adding a long delay. */
+  transform: translate3d(0, 0, 0) scale(1);
+  filter: blur(0);
+  transition:
+    opacity 190ms var(--ease-genie-secondary, cubic-bezier(0.23, 1, 0.32, 1)),
+    transform 220ms var(--ease-genie-secondary, cubic-bezier(0.23, 1, 0.32, 1)),
+    filter 190ms ease;
 }
 
 .galleryStageLayer--fill {
@@ -338,14 +343,29 @@
 .galleryStageLayer--front {
   opacity: 1;
   z-index: 2;
+  transform: translate3d(0, 0, 0) scale(1);
+  filter: blur(0);
 }
 
 .galleryStageLayer--back {
   opacity: 0;
   z-index: 1;
+  transform: translate3d(0, 0, 0) scale(1.006);
+  filter: blur(3px);
 }
 
-/* Media sits first in DOM, panel second; the info transition now shrinks the media from the right edge. */
+.genieProjectFlight {
+  position: fixed;
+  inset: 0;
+  z-index: 58;
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Panel before stage: stage stays the second flex column (no row-reverse snap when closing info). */
 .projectInfoPanel {
   display: flex;
   flex-direction: column;
@@ -466,13 +486,13 @@
   max-height: 100%;
   pointer-events: auto;
   padding: var(--space-5);
-  padding-right: 0;
+  padding-left: 0;
   overflow-x: hidden;
   overflow-y: auto;
 }
 
 
-/* Prev/next: fixed strip; in info mode only over the stage column (left), not the panel */
+/* Prev/next: fixed strip; in info mode only over the stage column (right), not the panel */
 .hitOverlay {
   position: fixed;
   left: 0;
@@ -490,8 +510,8 @@
 }
 
 .shell--info .hitOverlay {
-  left: var(--info-side-pad);
-  right: calc(var(--info-side-pad) + var(--info-panel-w) + var(--info-gap));
+  left: calc(var(--info-side-pad) + var(--info-panel-w) + var(--info-gap));
+  right: var(--info-side-pad);
   top: var(--info-top-pad);
   bottom: var(--info-bottom-pad);
 }
@@ -529,13 +549,12 @@
   right: 0;
   z-index: 60;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-3);
   /* 24px from top (below safe area on notched devices); matches story dots inset from image */
   padding: calc(var(--space-6) + env(safe-area-inset-top, 0px)) var(--space-6) var(--space-6);
   pointer-events: none;
-  transition: padding var(--duration-stage-info, 0.32s) var(--ease-view-inset);
 }
 
 .topBar > * {
@@ -548,15 +567,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  justify-self: end;
+  justify-self: start;
   width: var(--identity-compact-w);
   min-width: 0;
-  transition: width var(--duration-stage-info, 0.32s) var(--ease-view-inset);
   pointer-events: none;
-}
-
-.shell--info .topBarLead {
-  width: calc(var(--info-panel-w) - var(--space-5));
 }
 
 .shell--info .topBar {
@@ -921,9 +935,10 @@
 }
 
 .topRight {
-  justify-self: start;
+  justify-self: end;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--space-2);
   min-width: 0;
 }
@@ -965,7 +980,9 @@
   --rail-card-hover-scale: 1.045;
   --rail-card-selected-scale: 0.96;
   --rail-card-state-duration: 220ms;
-  --rail-card-state-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --rail-card-state-ease: var(--ease-genie-secondary, cubic-bezier(0.23, 1, 0.32, 1));
+  --rail-gap-fill-delay: var(--genie-rail-gap-delay, 620ms);
+  --rail-gap-fill-duration: 420ms;
   --rail-card-shadow-rest: var(--shadow-surface);
   --rail-card-shadow-hover: var(--shadow-surface-hover);
   /* Extra space between “swipe up for more” hint and cards only (cards stay flush to viewport bottom) */
@@ -1015,8 +1032,8 @@
 
 @keyframes railSlideEnter {
   from {
-    opacity: 0.6;
-    transform: translate3d(var(--rail-rubber-x), 22px, 0) scale(calc(var(--card-rest-scale) * 0.94));
+    opacity: 0.72;
+    transform: translate3d(var(--rail-rubber-x), 16px, 0) scale(calc(var(--card-rest-scale) * 0.965));
   }
   to {
     opacity: 1;
@@ -1032,8 +1049,8 @@
 
 .railWrapSlide[data-hidden='false'] .rail > .card,
 .railWrapSlide[data-hidden='false'] .rail > .archiveTeaser {
-  animation: railSlideEnter 640ms cubic-bezier(0.22, 0.82, 0.18, 1) backwards;
-  animation-delay: calc(var(--rail-enter-rank, var(--rail-enter-index, 0)) * 30ms);
+  animation: railSlideEnter 380ms var(--ease-out-quint) backwards;
+  animation-delay: calc(var(--rail-enter-rank, var(--rail-enter-index, 0)) * 22ms);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1111,7 +1128,7 @@
   flex-direction: column;
   align-items: stretch;
   gap: 0;
-  width: calc(var(--rail-thumb-h) * 4 / 5);
+  width: calc(var(--rail-thumb-h) * 5 / 4);
   margin-right: var(--rail-inter-card-gap);
   padding: 0;
   border: none;
@@ -1145,8 +1162,10 @@
   width: 100%;
   height: var(--rail-thumb-h);
   flex-shrink: 0;
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 5 / 4;
   overflow: visible;
+  perspective: 760px;
+  perspective-origin: center top;
   border-radius: var(--project-media-radius);
   background: transparent;
   box-shadow: none;
@@ -1159,34 +1178,42 @@
   position: absolute;
   inset: 0;
   display: block;
+  transform-style: preserve-3d;
   pointer-events: none;
 }
 
 .archiveTeaserCard {
   --archive-teaser-x: 0px;
   --archive-teaser-y: 0px;
-  --archive-teaser-rotate: 0deg;
+  --archive-teaser-scale: 1;
+  --archive-teaser-tilt: -6deg;
+  --archive-teaser-brightness: 1;
   --archive-teaser-hover-x: var(--archive-teaser-x);
   --archive-teaser-hover-y: var(--archive-teaser-y);
-  --archive-teaser-hover-rotate: var(--archive-teaser-rotate);
+  --archive-teaser-hover-scale: var(--archive-teaser-scale);
+  --archive-teaser-hover-tilt: -12deg;
+  --archive-teaser-hover-brightness: var(--archive-teaser-brightness);
   position: absolute;
   display: block;
-  left: 50%;
-  top: 50%;
-  width: 72%;
-  height: 76%;
-  border-radius: clamp(7px, calc(var(--rail-thumb-h) * 0.04), 12px);
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--project-media-radius);
   overflow: hidden;
   background: #d8d8d8;
   box-shadow:
     var(--shadow-surface),
     0 0 0 1px rgba(255, 255, 255, 0.34);
   transform:
-    translate3d(calc(-50% + var(--archive-teaser-x)), calc(-50% + var(--archive-teaser-y)), 0)
-    rotate(var(--archive-teaser-rotate));
-  transform-origin: center center;
+    translate3d(var(--archive-teaser-x), var(--archive-teaser-y), 0)
+    rotateX(var(--archive-teaser-tilt))
+    scale(var(--archive-teaser-scale));
+  transform-origin: center bottom;
+  backface-visibility: hidden;
+  filter: brightness(var(--archive-teaser-brightness));
   transition:
     transform 260ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 260ms ease,
     box-shadow var(--duration-rail-card-hover, 0.18s) ease;
 }
 
@@ -1209,76 +1236,51 @@
 }
 
 .archiveTeaserCard--1 {
-  --archive-teaser-x: -9%;
-  --archive-teaser-y: 7%;
-  --archive-teaser-rotate: -8deg;
-  --archive-teaser-hover-x: -17%;
-  --archive-teaser-hover-y: 3%;
-  --archive-teaser-hover-rotate: -13deg;
+  --archive-teaser-y: -30%;
+  --archive-teaser-scale: 0.84;
+  --archive-teaser-tilt: -4deg;
+  --archive-teaser-brightness: 0.58;
+  --archive-teaser-hover-y: -40%;
+  --archive-teaser-hover-scale: 0.82;
+  --archive-teaser-hover-tilt: -9deg;
+  --archive-teaser-hover-brightness: 0.52;
   z-index: 1;
 }
 
 .archiveTeaserCard--2 {
-  --archive-teaser-x: 6%;
-  --archive-teaser-y: 5%;
-  --archive-teaser-rotate: 6deg;
-  --archive-teaser-hover-x: 15%;
-  --archive-teaser-hover-y: 0%;
-  --archive-teaser-hover-rotate: 10deg;
+  --archive-teaser-y: -20%;
+  --archive-teaser-scale: 0.9;
+  --archive-teaser-tilt: -5deg;
+  --archive-teaser-brightness: 0.72;
+  --archive-teaser-hover-y: -28%;
+  --archive-teaser-hover-scale: 0.88;
+  --archive-teaser-hover-tilt: -10deg;
+  --archive-teaser-hover-brightness: 0.66;
   z-index: 2;
 }
 
 .archiveTeaserCard--3 {
-  --archive-teaser-x: -1%;
-  --archive-teaser-y: -3%;
-  --archive-teaser-rotate: -2deg;
-  --archive-teaser-hover-x: -3%;
-  --archive-teaser-hover-y: -11%;
-  --archive-teaser-hover-rotate: -4deg;
+  --archive-teaser-y: -10%;
+  --archive-teaser-scale: 0.95;
+  --archive-teaser-tilt: -6deg;
+  --archive-teaser-brightness: 0.86;
+  --archive-teaser-hover-y: -15%;
+  --archive-teaser-hover-scale: 0.94;
+  --archive-teaser-hover-tilt: -11deg;
+  --archive-teaser-hover-brightness: 0.8;
   z-index: 3;
 }
 
 .archiveTeaserCard--4 {
-  --archive-teaser-x: 2%;
-  --archive-teaser-y: -7%;
-  --archive-teaser-rotate: 3deg;
-  --archive-teaser-hover-x: 4%;
-  --archive-teaser-hover-y: -17%;
-  --archive-teaser-hover-rotate: 5deg;
+  --archive-teaser-y: 0;
+  --archive-teaser-scale: 1;
+  --archive-teaser-tilt: -7deg;
+  --archive-teaser-brightness: 1;
+  --archive-teaser-hover-tilt: -13deg;
   z-index: 4;
 }
 
 .archiveTeaserLabel {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0;
-  padding: 0.58rem 0.9rem;
-  box-sizing: border-box;
-  border-radius: 999px;
-  background: #ffffff;
-  backdrop-filter: blur(12px) saturate(1.2);
-  -webkit-backdrop-filter: blur(12px) saturate(1.2);
-  box-shadow: var(--shadow-ring-light);
-  font-size: 1rem;
-  line-height: 1.15;
-  font-weight: 600;
-  letter-spacing: -0.011em;
-  color: rgba(5, 5, 5, 0.92);
-  text-align: center;
-  word-break: normal;
-  overflow-wrap: break-word;
-  opacity: 1;
-  white-space: nowrap;
-  transform: translate3d(-50%, -50%, 0);
-  transform-origin: center;
-  transition:
-    background-color var(--duration-rail-card-hover, 0.18s) ease,
-    transform var(--duration-rail-card-hover, 0.18s) var(--rail-card-state-ease);
   pointer-events: none;
 }
 
@@ -1293,16 +1295,13 @@
       0 0 0 1px rgba(255, 255, 255, 0.38);
     transform:
       translate3d(
-        calc(-50% + var(--archive-teaser-hover-x)),
-        calc(-50% + var(--archive-teaser-hover-y)),
+        var(--archive-teaser-hover-x),
+        var(--archive-teaser-hover-y),
         0
       )
-      rotate(var(--archive-teaser-hover-rotate));
-  }
-
-  .archiveTeaser:hover .archiveTeaserLabel {
-    background: #ffffff;
-    transform: translate3d(-50%, -50%, 0) scale(1.02);
+      rotateX(var(--archive-teaser-hover-tilt))
+      scale(var(--archive-teaser-hover-scale));
+    filter: brightness(var(--archive-teaser-hover-brightness));
   }
 }
 
@@ -1319,13 +1318,16 @@
   padding: 0;
   cursor: pointer;
   text-align: left;
-  width: auto;
+  width: calc(var(--rail-thumb-h) * 5 / 4);
   margin-right: var(--rail-inter-card-gap);
   transform-origin: center bottom;
   backface-visibility: hidden;
+  overflow: visible;
   transition:
     transform var(--rail-rubber-ms, 260ms) cubic-bezier(0.18, 1.38, 0.22, 1),
-    opacity var(--duration-rail-card-hover, 0.22s) ease;
+    opacity var(--duration-rail-card-hover, 0.22s) ease,
+    width var(--duration-stage-info, 0.32s) var(--ease-view-inset),
+    margin-right var(--duration-stage-info, 0.32s) var(--ease-view-inset);
   vertical-align: bottom;
   white-space: normal;
 }
@@ -1338,7 +1340,22 @@
 .card--open {
   z-index: 1;
   opacity: 1;
+  transform-origin: right bottom;
   transform: translate3d(var(--rail-rubber-x), 0, 0) scale(var(--card-rest-scale));
+}
+
+.railWrap[data-info-open='true'] .card--open {
+  width: 0;
+  margin-right: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translate3d(var(--rail-rubber-x), 0, 0) scale(0.88);
+  transition:
+    transform 260ms var(--ease-out-quint),
+    opacity 200ms var(--ease-view-inset),
+    width var(--rail-gap-fill-duration) var(--ease-out-quint) var(--rail-gap-fill-delay),
+    margin-right var(--rail-gap-fill-duration) var(--ease-out-quint) var(--rail-gap-fill-delay);
 }
 
 .card:focus-visible {
@@ -1348,8 +1365,8 @@
 
 .thumb {
   height: var(--rail-thumb-h);
-  width: auto;
-  aspect-ratio: 4 / 5;
+  width: 100%;
+  aspect-ratio: 5 / 4;
   /* Corners: @squircle-js/react Squircle (matches --project-media-radius) */
   border: none;
   background: var(--thumb-bg);
@@ -1385,12 +1402,39 @@
   }
 }
 
+.thumbGalleryStack {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+}
+
+.thumbGalleryLayer {
+  position: absolute;
+  inset: 0;
+  z-index: calc(1 + var(--thumb-gallery-index, 0));
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  opacity: 0;
+  transform: scale(var(--squircle-media-overscan));
+  transform-origin: center center;
+}
+
+.thumbGalleryLayer--primary {
+  opacity: 1;
+}
+
 .thumbMedia {
   width: 100%;
   height: 100%;
   display: block;
   position: relative;
-  z-index: 0;
+  z-index: 1;
   object-position: center;
   transform: scale(var(--squircle-media-overscan));
   transform-origin: center center;
@@ -1401,6 +1445,11 @@
 
 .card--open .thumbMedia {
   filter: blur(4px);
+}
+
+.railWrap[data-info-open='true'] .card--open .thumbMedia {
+  opacity: 0;
+  filter: blur(6px);
 }
 
 .cardSelectedIcon {
@@ -1468,20 +1517,17 @@
 }
 
 .cardLabel {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 3;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 2px;
+  width: 100%;
+  min-height: 0;
   margin: 0;
-  padding: var(--space-5);
+  padding: 0 1px;
   box-sizing: border-box;
   min-width: 0;
-  color: #ffffff;
+  color: var(--text-strong);
   text-align: left;
   letter-spacing: -0.011em;
   word-break: normal;
@@ -1490,6 +1536,20 @@
   transition:
     color var(--rail-card-state-duration, 220ms) ease,
     opacity var(--rail-card-state-duration, 220ms) ease;
+}
+
+.thumb .cardLabel,
+.archiveTeaserCard .cardLabel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  justify-content: flex-end;
+  min-height: 0;
+  margin: 0;
+  padding: var(--space-5);
+  color: #ffffff;
 }
 
 .cardLabelTitle,
@@ -1514,6 +1574,13 @@
   font-size: 1rem;
   line-height: 1.15;
   font-weight: 400;
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+.thumb .cardLabelCategory,
+.archiveTeaserCard .cardLabelCategory {
+  color: inherit;
   opacity: 0.74;
 }
 
@@ -1671,9 +1738,20 @@
     transition: none;
   }
 
+  .railWrapSlide[data-hidden='false'] .archiveTeaser:hover .archiveTeaserCard {
+    box-shadow:
+      var(--shadow-surface),
+      0 0 0 1px rgba(255, 255, 255, 0.34);
+    transform:
+      translate3d(var(--archive-teaser-x), var(--archive-teaser-y), 0)
+      rotateX(var(--archive-teaser-tilt))
+      scale(var(--archive-teaser-scale));
+  }
+
   .fullBleed,
   .fullBleedInner,
-  .stageMediaWrap {
+  .stageMediaWrap,
+  .stageMediaSquircle {
     transition: none !important;
   }
 
@@ -1690,6 +1768,7 @@
   .galleryStageLayer,
   .galleryStageLayer--front,
   .galleryStageLayer--back,
+  .stageMediaSquircle,
   .projectInfoPanel,
   .projectInfoInner,
   .aboutOverlay,
@@ -1713,6 +1792,11 @@
     filter: none !important;
   }
 
+  .shell--genie-flight .stageMediaSquircle {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
   .galleryStageLayer--back {
     opacity: 0 !important;
   }
@@ -1732,7 +1816,7 @@
 
 @media (max-width: 720px) {
   .topBar {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr);
     padding: calc(var(--space-6) + env(safe-area-inset-top, 0px)) var(--space-3) var(--space-6);
   }
 
@@ -1787,8 +1871,9 @@
     overflow-y: auto;
   }
 
-  /* Stack: stage on top, panel below. */
+  /* Stage above panel in column layout (panel is first in DOM). */
   .shell--info .stageMediaWrap {
+    order: -1;
     flex: 1 1 auto;
     min-height: min(44svh, 52vh);
     width: 100%;
@@ -1800,6 +1885,7 @@
     min-height: 0;
     width: 100%;
     max-width: none;
+    padding: var(--space-5);
   }
 
   /* Stacked: panel is full width — let copy follow fluid width */

@@ -8,5 +8,96 @@
     "src": "/images/projects/piesni-wspolczesne-tom-ii/cover/piesni.png",
     "alt": "Pieśni współczesne tom II cover"
   },
-  "gallery": []
+  "gallery": [
+    {
+      "kind": "image",
+      "src": "/images/projects/piesni-wspolczesne-tom-ii/gallery/piesni-asset1.webp",
+      "alt": "piesni-asset1.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/piesni-wspolczesne-tom-ii/gallery/piesni-asset2.webp",
+      "alt": "piesni-asset2.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/piesni-wspolczesne-tom-ii/gallery/piesni-asset3.webp",
+      "alt": "piesni-asset3.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/piesni-wspolczesne-tom-ii/gallery/piesni-asset4.webp",
+      "alt": "piesni-asset4.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/piesni-wspolczesne-tom-ii/gallery/piesni-asset5.webp",
+      "alt": "piesni-asset5.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/piesni-wspolczesne-tom-ii/gallery/piesni-asset6.webp",
+      "alt": "piesni-asset6.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/piesni-wspolczesne-tom-ii/gallery/piesni-asset7.webp",
+      "alt": "piesni-asset7.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/piesni-wspolczesne-tom-ii/gallery/piesni-asset8.webp",
+      "alt": "piesni-asset8.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/piesni-wspolczesne-tom-ii/gallery/piesni-asset9.webp",
+      "alt": "piesni-asset9.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/piesni-wspolczesne-tom-ii/gallery/piesni-asset10.webp",
+      "alt": "piesni-asset10.webp",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    }
+  ]
 }

@@ -11,25 +11,90 @@
   },
   "gallery": [
     {
-      "kind": "video",
-      "src": "/images/projects/one-way/video/One%20Way%20Full%20Video.mp4",
-      "poster": "/images/projects/one-way/cover/one-way.png",
+      "kind": "image",
+      "src": "/images/projects/one-way/gallery/3.jpg",
+      "alt": "3.jpg",
       "presentation": {
-        "mode": "framed",
-        "background": {
-          "kind": "color",
-          "value": "#f3eadf"
-        },
-        "padding": "clamp(2rem, 7vw, 6.5rem)",
-        "mediaFit": "contain",
-        "objectPosition": "center",
-        "shadow": "soft"
+        "mode": "fill",
+        "objectPosition": "center"
       }
     },
     {
       "kind": "image",
-      "src": "/images/projects/one-way/gallery/3-2.jpg",
-      "alt": "3.jpg",
+      "src": "/images/projects/one-way/gallery/5.jpg",
+      "alt": "5.jpg",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/one-way/gallery/6.jpg",
+      "alt": "6.jpg",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/one-way/gallery/7.jpg",
+      "alt": "7.jpg",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/one-way/gallery/8.jpg",
+      "alt": "8.jpg",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/one-way/gallery/9.jpg",
+      "alt": "9.jpg",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/one-way/gallery/10.jpg",
+      "alt": "10.jpg",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/one-way/gallery/11.jpg",
+      "alt": "11.jpg",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/one-way/gallery/12.jpg",
+      "alt": "12.jpg",
+      "presentation": {
+        "mode": "fill",
+        "objectPosition": "center"
+      }
+    },
+    {
+      "kind": "image",
+      "src": "/images/projects/one-way/gallery/Untitled-1.jpg",
+      "alt": "Untitled-1.jpg",
       "presentation": {
         "mode": "fill",
         "objectPosition": "center"
