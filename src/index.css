@@ -60,6 +60,21 @@
     0 -22px 18px rgba(0, 0, 0, 0.05),
     0 -10px 12px rgba(0, 0, 0, 0.072),
     0 -3px 6px rgba(0, 0, 0, 0.086);
+  /* Layered rail card shadows — tuned for #10161f ink */
+  --shadow-rail-thumb-rest:
+    0 1px 2px rgba(16, 22, 31, 0.045),
+    0 3px 6px rgba(16, 22, 31, 0.042),
+    0 8px 16px rgba(16, 22, 31, 0.038),
+    0 16px 32px rgba(16, 22, 31, 0.03),
+    0 28px 48px rgba(16, 22, 31, 0.022);
+  --shadow-rail-thumb-hover:
+    0 1px 2px rgba(16, 22, 31, 0.1),
+    1px 3px 6px rgba(16, 22, 31, 0.12),
+    2px 8px 18px rgba(16, 22, 31, 0.1),
+    3px 16px 36px rgba(16, 22, 31, 0.085),
+    4px 28px 56px rgba(16, 22, 31, 0.065),
+    6px 44px 88px rgba(16, 22, 31, 0.048),
+    8px 64px 120px rgba(16, 22, 31, 0.032);
   /* Named stacks only (no system-ui on macOS — measurement mismatch with canvas text APIs) */
   --font-ui: Inter, Helvetica, Arial, sans-serif;
   /* Base typography scale */
@@ -101,14 +116,16 @@
    */
   --duration-stage-info: 0.32s;
   --duration-view-resize: 0.34s;
-  --duration-rail-card-hover: 0.18s;
+  --duration-rail-card-hover: 0.135s;
+  --delay-rail-card-hover-icon: 0.03s;
   --duration-rail-card-enter: 0.22s;
   --duration-rail-reveal: 0.26s;
   --ease-rail-reveal: var(--ease-view-inset);
 
   /* Layout: full-bleed media + overlapping rail; hit strip avoids header/rail */
   --rail-thumb-h: clamp(10rem, 20vh, 18rem);
-  --rail-hover-headroom: 4rem;
+  /* Top headroom: hover scale + rail shadow stacks stay inside scrollport */
+  --rail-hover-headroom: 5rem;
   /* Stage (info) + rail project covers — same corner radius */
   --project-media-radius: 20px;
   /* Fixed top bar: matches .topBar padding + identity row (1rem × body line-height) */

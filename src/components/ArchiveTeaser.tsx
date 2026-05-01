@@ -24,28 +24,25 @@ export function ArchiveTeaser({ onNavigate, style }: ArchiveTeaserProps) {
       className="archiveTeaser"
       style={style}
       role="listitem"
-      aria-label="See the archive"
+      aria-label="see archives"
       onClick={onNavigate}
       onMouseEnter={handlePreload}
       onFocus={handlePreload}
       onTouchStart={handlePreload}
     >
-      <div className="archiveTeaserStack" aria-hidden>
-        <span className="archiveTeaserCards">
+      <div className="archiveTeaserStack">
+        <span className="archiveTeaserCards" aria-hidden>
           {stackImages.map((src, index) => (
             <span
               key={src}
               className={`archiveTeaserCard archiveTeaserCard--${index + 1}`}
             >
               <img src={src} alt="" draggable={false} decoding="async" loading="lazy" />
-              {index === stackImages.length - 1 ? (
-                <span className="archiveTeaserLabel cardLabel">
-                  <span className="cardLabelTitle">CD archive</span>
-                  <span className="cardLabelCategory">Archive</span>
-                </span>
-              ) : null}
             </span>
           ))}
+        </span>
+        <span className="archiveTeaserCta" aria-hidden>
+          see archives
         </span>
       </div>
     </button>

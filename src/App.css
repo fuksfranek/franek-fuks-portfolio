@@ -147,9 +147,34 @@
 .shell--genie-flight .stageMediaSquircle {
   opacity: var(--genie-stage-opacity, 0.01);
   transform: scale(var(--genie-stage-scale, 0.985));
-  filter: blur(var(--genie-stage-blur, 3px));
   transition: none;
-  will-change: opacity, transform, filter;
+}
+
+/* Blur on gallery stack only; `.stageMediaSquircle` stays sharp for stroke */
+.shell--genie-flight .galleryStage {
+  filter: blur(var(--genie-stage-blur, 52px));
+  transition: none;
+}
+
+.shell--genie-flight .galleryStageGenieVeil {
+  opacity: var(--genie-stage-content-veil, 1);
+  transition: none;
+}
+
+/* Post-flight: blur-out on whole gallery stack */
+.shell--genie-handoff-unwind .galleryStage {
+  animation: genie-gallery-blur-tail-out var(--genie-handoff-blur-tail-ms, 700ms)
+    cubic-bezier(0.18, 0.88, 0.28, 1) forwards;
+}
+
+@keyframes genie-gallery-blur-tail-out {
+  from {
+    filter: blur(var(--genie-tail-blur-start, 52px));
+  }
+
+  to {
+    filter: blur(0);
+  }
 }
 
 /* Squircle-aligned stroke: src/SquircleMediaStroke.tsx (same path as @squircle-js/react) */
@@ -190,6 +215,16 @@
   height: 100%;
   display: block;
   pointer-events: none;
+}
+
+/* Solid fill during genie; opacity from `--genie-stage-content-veil` on `.shell` */
+.galleryStageGenieVeil {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background: var(--stage-bg);
+  opacity: 0;
 }
 
 .galleryStageEmpty {
@@ -981,10 +1016,17 @@
   --rail-card-selected-scale: 0.96;
   --rail-card-state-duration: 220ms;
   --rail-card-state-ease: var(--ease-genie-secondary, cubic-bezier(0.23, 1, 0.32, 1));
-  --rail-gap-fill-delay: var(--genie-rail-gap-delay, 620ms);
+  --rail-thumb-transform-duration: 185ms;
+  --ease-rail-thumb-transform: var(--ease-out-cubic);
+  --rail-cover-media-hover-boost: 1.022;
+  --rail-card-press-scale-rest: 0.962;
+  --rail-card-press-from-hover-relative: 0.965;
+  --rail-card-press-down-duration: 128ms;
+  --ease-rail-card-press-in: var(--ease-out-cubic, cubic-bezier(0.16, 0.84, 0.32, 1));
+  --rail-gap-fill-delay: var(--genie-rail-gap-delay, 738ms); /* matches genieRailGapDelayMs when shell sets var */
   --rail-gap-fill-duration: 420ms;
-  --rail-card-shadow-rest: var(--shadow-surface);
-  --rail-card-shadow-hover: var(--shadow-surface-hover);
+  --rail-card-shadow-rest: var(--shadow-rail-thumb-rest);
+  --rail-card-shadow-hover: var(--shadow-rail-thumb-hover);
   /* Extra space between “swipe up for more” hint and cards only (cards stay flush to viewport bottom) */
   --rail-hint-lift: var(--space-6);
   --rail-hint-pad: var(--space-5) var(--space-8);
@@ -1047,7 +1089,7 @@
   transition: none;
 }
 
-.railWrapSlide[data-hidden='false'] .rail > .card,
+.railWrapSlide[data-hidden='false'] .rail > .card:not(.card--open),
 .railWrapSlide[data-hidden='false'] .rail > .archiveTeaser {
   animation: railSlideEnter 380ms var(--ease-out-quint) backwards;
   animation-delay: calc(var(--rail-enter-rank, var(--rail-enter-index, 0)) * 22ms);
@@ -1055,7 +1097,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .railWrapSlide[data-hidden='true'] .card,
-  .railWrapSlide[data-hidden='false'] .card,
+  .railWrapSlide[data-hidden='false'] .card:not(.card--open),
   .railWrapSlide[data-hidden='true'] .archiveTeaser,
   .railWrapSlide[data-hidden='false'] .archiveTeaser {
     animation: none !important;
@@ -1164,8 +1206,6 @@
   flex-shrink: 0;
   aspect-ratio: 5 / 4;
   overflow: visible;
-  perspective: 760px;
-  perspective-origin: center top;
   border-radius: var(--project-media-radius);
   background: transparent;
   box-shadow: none;
@@ -1178,20 +1218,19 @@
   position: absolute;
   inset: 0;
   display: block;
-  transform-style: preserve-3d;
   pointer-events: none;
 }
 
 .archiveTeaserCard {
-  --archive-teaser-x: 0px;
-  --archive-teaser-y: 0px;
+  --archive-teaser-dx: 0px;
+  --archive-teaser-dy: 0px;
+  --archive-teaser-rot: 0deg;
   --archive-teaser-scale: 1;
-  --archive-teaser-tilt: -6deg;
   --archive-teaser-brightness: 1;
-  --archive-teaser-hover-x: var(--archive-teaser-x);
-  --archive-teaser-hover-y: var(--archive-teaser-y);
+  --archive-teaser-hover-dx: var(--archive-teaser-dx);
+  --archive-teaser-hover-dy: var(--archive-teaser-dy);
+  --archive-teaser-hover-rot: var(--archive-teaser-rot);
   --archive-teaser-hover-scale: var(--archive-teaser-scale);
-  --archive-teaser-hover-tilt: -12deg;
   --archive-teaser-hover-brightness: var(--archive-teaser-brightness);
   position: absolute;
   display: block;
@@ -1204,11 +1243,9 @@
   box-shadow:
     var(--shadow-surface),
     0 0 0 1px rgba(255, 255, 255, 0.34);
-  transform:
-    translate3d(var(--archive-teaser-x), var(--archive-teaser-y), 0)
-    rotateX(var(--archive-teaser-tilt))
-    scale(var(--archive-teaser-scale));
-  transform-origin: center bottom;
+  transform: translate3d(var(--archive-teaser-dx), var(--archive-teaser-dy), 0)
+    rotate(var(--archive-teaser-rot)) scale(var(--archive-teaser-scale));
+  transform-origin: center center;
   backface-visibility: hidden;
   filter: brightness(var(--archive-teaser-brightness));
   transition:
@@ -1229,59 +1266,95 @@
   max-height: none;
   object-fit: cover;
   object-position: center;
-  transform: scale(1.08);
+  transform: scale(1.05);
   transform-origin: center;
   user-select: none;
   pointer-events: none;
 }
 
 .archiveTeaserCard--1 {
-  --archive-teaser-y: -30%;
-  --archive-teaser-scale: 0.84;
-  --archive-teaser-tilt: -4deg;
-  --archive-teaser-brightness: 0.58;
-  --archive-teaser-hover-y: -40%;
-  --archive-teaser-hover-scale: 0.82;
-  --archive-teaser-hover-tilt: -9deg;
-  --archive-teaser-hover-brightness: 0.52;
+  --archive-teaser-dx: -3px;
+  --archive-teaser-dy: 2px;
+  --archive-teaser-rot: -5deg;
+  --archive-teaser-scale: 0.92;
+  --archive-teaser-brightness: 0.72;
+  --archive-teaser-hover-dx: -4px;
+  --archive-teaser-hover-dy: 1px;
+  --archive-teaser-hover-rot: -7deg;
+  --archive-teaser-hover-scale: 0.9;
+  --archive-teaser-hover-brightness: 0.68;
   z-index: 1;
 }
 
 .archiveTeaserCard--2 {
-  --archive-teaser-y: -20%;
-  --archive-teaser-scale: 0.9;
-  --archive-teaser-tilt: -5deg;
-  --archive-teaser-brightness: 0.72;
-  --archive-teaser-hover-y: -28%;
-  --archive-teaser-hover-scale: 0.88;
-  --archive-teaser-hover-tilt: -10deg;
-  --archive-teaser-hover-brightness: 0.66;
+  --archive-teaser-dx: 4px;
+  --archive-teaser-dy: -2px;
+  --archive-teaser-rot: 7deg;
+  --archive-teaser-scale: 0.95;
+  --archive-teaser-brightness: 0.82;
+  --archive-teaser-hover-dx: 5px;
+  --archive-teaser-hover-dy: -3px;
+  --archive-teaser-hover-rot: 9deg;
+  --archive-teaser-hover-scale: 0.93;
+  --archive-teaser-hover-brightness: 0.78;
   z-index: 2;
 }
 
 .archiveTeaserCard--3 {
-  --archive-teaser-y: -10%;
-  --archive-teaser-scale: 0.95;
-  --archive-teaser-tilt: -6deg;
-  --archive-teaser-brightness: 0.86;
-  --archive-teaser-hover-y: -15%;
-  --archive-teaser-hover-scale: 0.94;
-  --archive-teaser-hover-tilt: -11deg;
-  --archive-teaser-hover-brightness: 0.8;
+  --archive-teaser-dx: -2px;
+  --archive-teaser-dy: -3px;
+  --archive-teaser-rot: -3deg;
+  --archive-teaser-scale: 0.97;
+  --archive-teaser-brightness: 0.9;
+  --archive-teaser-hover-dx: -3px;
+  --archive-teaser-hover-dy: -4px;
+  --archive-teaser-hover-rot: -5deg;
+  --archive-teaser-hover-scale: 0.95;
+  --archive-teaser-hover-brightness: 0.86;
   z-index: 3;
 }
 
 .archiveTeaserCard--4 {
-  --archive-teaser-y: 0;
-  --archive-teaser-scale: 1;
-  --archive-teaser-tilt: -7deg;
+  --archive-teaser-dx: 2px;
+  --archive-teaser-dy: 1px;
+  --archive-teaser-rot: 4deg;
   --archive-teaser-brightness: 1;
-  --archive-teaser-hover-tilt: -13deg;
+  --archive-teaser-hover-dx: 3px;
+  --archive-teaser-hover-dy: 0px;
+  --archive-teaser-hover-rot: 6deg;
+  --archive-teaser-hover-brightness: 1;
   z-index: 4;
 }
 
-.archiveTeaserLabel {
+.archiveTeaserCta {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 8;
+  transform: translate3d(-50%, -50%, 0);
   pointer-events: none;
+  margin: 0;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(12, 14, 18, 0.52);
+  box-shadow:
+    0 2px 12px rgba(0, 0, 0, 0.18),
+    0 0 0 1px rgba(0, 0, 0, 0.06) inset;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+  transition:
+    transform 260ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 220ms ease,
+    border-color 220ms ease;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1295,13 +1368,19 @@
       0 0 0 1px rgba(255, 255, 255, 0.38);
     transform:
       translate3d(
-        var(--archive-teaser-hover-x),
-        var(--archive-teaser-hover-y),
+        var(--archive-teaser-hover-dx),
+        var(--archive-teaser-hover-dy),
         0
       )
-      rotateX(var(--archive-teaser-hover-tilt))
+      rotate(var(--archive-teaser-hover-rot))
       scale(var(--archive-teaser-hover-scale));
     filter: brightness(var(--archive-teaser-hover-brightness));
+  }
+
+  .railWrapSlide[data-hidden='false'] .archiveTeaser:hover .archiveTeaserCta {
+    transform: translate3d(-50%, -50%, 0) scale(1.03);
+    background: rgba(12, 14, 18, 0.62);
+    border-color: rgba(255, 255, 255, 0.32);
   }
 }
 
@@ -1348,19 +1427,44 @@
   width: 0;
   margin-right: 0;
   opacity: 0;
+  visibility: hidden;
   overflow: hidden;
   pointer-events: none;
   transform: translate3d(var(--rail-rubber-x), 0, 0) scale(0.88);
   transition:
-    transform 260ms var(--ease-out-quint),
-    opacity 200ms var(--ease-view-inset),
+    opacity 0s linear,
+    visibility 0s linear,
+    transform 0s linear,
     width var(--rail-gap-fill-duration) var(--ease-out-quint) var(--rail-gap-fill-delay),
     margin-right var(--rail-gap-fill-duration) var(--ease-out-quint) var(--rail-gap-fill-delay);
+}
+
+/* First paint in detail: collapse open slot with no delayed gap animation */
+.railWrap.railWrap--gapFillInstant[data-info-open='true'] .card--open {
+  transition:
+    opacity 0s linear,
+    visibility 0s linear,
+    transform 0s linear,
+    width 0ms linear,
+    margin-right 0ms linear;
 }
 
 .card:focus-visible {
   outline: 2px solid var(--text-strong);
   outline-offset: 4px;
+}
+
+/* Squircle sets clip-path on .thumb — paint (incl. box-shadow) is clipped there; cast shadow from this shell. */
+.cardThumbElevate {
+  display: block;
+  width: 100%;
+  overflow: visible;
+  transform-origin: center center;
+  border-radius: var(--project-media-radius);
+  transition:
+    transform var(--rail-thumb-transform-duration, 185ms) var(--ease-rail-thumb-transform),
+    box-shadow var(--rail-thumb-transform-duration, 185ms) var(--ease-rail-thumb-transform);
+  box-shadow: var(--rail-card-shadow-rest);
 }
 
 .thumb {
@@ -1373,25 +1477,41 @@
   position: relative;
   overflow: hidden;
   transform-origin: center center;
-  transition:
-    transform var(--rail-card-state-duration, 220ms) var(--rail-card-state-ease),
-    box-shadow var(--rail-card-state-duration, 220ms) ease;
-  box-shadow: var(--rail-card-shadow-rest);
 }
 
-.card--open .thumb {
+.card--open .cardThumbElevate {
   transform: scale(var(--rail-card-selected-scale));
   box-shadow: 0 0 0 2px var(--rail-open-thumb-ring);
+}
+
+/* Press: quick dip in; release uses .cardThumbElevate baseline transition (genie ease). */
+.railWrapSlide[data-hidden='false'] .card:not(.card--open):active .cardThumbElevate {
+  transition:
+    transform var(--rail-card-press-down-duration, 128ms) var(--ease-rail-card-press-in),
+    box-shadow var(--rail-card-press-down-duration, 128ms) var(--ease-rail-card-press-in);
+  transform: scale(var(--rail-card-press-scale-rest, 0.962));
+  box-shadow: var(--rail-card-shadow-rest);
 }
 
 /* Gentle hover lift (non-selected only) — fine pointers. */
 @media (hover: hover) and (pointer: fine) {
   .railWrapSlide[data-hidden='false'] .card:not(.card--open):hover {
     transform: translate3d(var(--rail-rubber-x), 0, 0) scale(var(--card-rest-scale));
+    z-index: 2;
   }
 
-  .railWrapSlide[data-hidden='false'] .card:not(.card--open):hover .thumb {
+  .railWrapSlide[data-hidden='false'] .card:not(.card--open):hover .cardThumbElevate {
     transform: scale(var(--rail-card-hover-scale));
+    box-shadow: var(--rail-card-shadow-hover);
+  }
+
+  .railWrapSlide[data-hidden='false'] .card:not(.card--open):hover .thumbMedia,
+  .railWrapSlide[data-hidden='false'] .card:not(.card--open):hover .thumbGalleryLayer {
+    transform: scale(calc(var(--squircle-media-overscan) * var(--rail-cover-media-hover-boost, 1.022)));
+  }
+
+  .railWrapSlide[data-hidden='false'] .card:not(.card--open):hover:active .cardThumbElevate {
+    transform: scale(calc(var(--rail-card-hover-scale) * var(--rail-card-press-from-hover-relative, 0.965)));
     box-shadow: var(--rail-card-shadow-hover);
   }
 
@@ -1399,6 +1519,7 @@
     opacity: 1;
     filter: blur(0);
     transform: rotate(-45deg) scale(1);
+    transition-delay: var(--delay-rail-card-hover-icon, 0.03s);
   }
 }
 
@@ -1423,6 +1544,7 @@
   opacity: 0;
   transform: scale(var(--squircle-media-overscan));
   transform-origin: center center;
+  transition: transform var(--rail-thumb-transform-duration, 185ms) var(--ease-rail-thumb-transform);
 }
 
 .thumbGalleryLayer--primary {
@@ -1440,16 +1562,19 @@
   transform-origin: center center;
   transition:
     opacity var(--rail-card-state-duration, 220ms) ease,
-    filter var(--rail-card-state-duration, 220ms) ease;
+    filter var(--rail-card-state-duration, 220ms) ease,
+    transform var(--rail-thumb-transform-duration, 185ms) var(--ease-rail-thumb-transform);
 }
 
 .card--open .thumbMedia {
   filter: blur(4px);
 }
 
-.railWrap[data-info-open='true'] .card--open .thumbMedia {
+.railWrap[data-info-open='true'] .card--open .thumbMedia,
+.railWrap[data-info-open='true'] .card--open .thumbGalleryLayer {
   opacity: 0;
   filter: blur(6px);
+  transition: none;
 }
 
 .cardSelectedIcon {
@@ -1488,15 +1613,18 @@
   right: var(--space-5);
   z-index: 3;
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: #ffffff;
   opacity: 0;
   filter: blur(6px);
-  transform: rotate(-45deg) scale(0.82);
-  transform-origin: center;
+  transform: rotate(-45deg) scale(0.6);
+  transform-origin: center center;
   transition:
-    opacity var(--duration-rail-card-hover, 0.18s) ease,
-    filter var(--duration-rail-card-hover, 0.18s) ease,
-    transform var(--duration-rail-card-hover, 0.18s) var(--rail-card-state-ease);
+    opacity var(--duration-rail-card-hover, 0.135s) var(--ease-out-cubic),
+    filter var(--duration-rail-card-hover, 0.135s) var(--ease-out-cubic),
+    transform var(--duration-rail-card-hover, 0.135s) var(--ease-out-cubic);
+  transition-delay: 0s;
   pointer-events: none;
 }
 
@@ -1538,8 +1666,7 @@
     opacity var(--rail-card-state-duration, 220ms) ease;
 }
 
-.thumb .cardLabel,
-.archiveTeaserCard .cardLabel {
+.thumb .cardLabel {
   position: absolute;
   left: 0;
   right: 0;
@@ -1578,8 +1705,7 @@
   opacity: 1;
 }
 
-.thumb .cardLabelCategory,
-.archiveTeaserCard .cardLabelCategory {
+.thumb .cardLabelCategory {
   color: inherit;
   opacity: 0.74;
 }
@@ -1723,11 +1849,21 @@
     transition: none;
   }
 
+  .archiveTeaserCard {
+    --archive-teaser-dx: 0px;
+    --archive-teaser-dy: 0px;
+    --archive-teaser-rot: 0deg;
+    --archive-teaser-hover-dx: 0px;
+    --archive-teaser-hover-dy: 0px;
+    --archive-teaser-hover-rot: 0deg;
+  }
+
   .archiveTeaserCard,
   .archiveTeaserStack,
-  .archiveTeaserLabel,
-  .thumb,
+  .archiveTeaserCta,
+  .cardThumbElevate,
   .thumbMedia,
+  .thumbGalleryLayer,
   .cardSelectedIcon,
   .cardHoverIcon,
   .cardLabel {
@@ -1743,9 +1879,13 @@
       var(--shadow-surface),
       0 0 0 1px rgba(255, 255, 255, 0.34);
     transform:
-      translate3d(var(--archive-teaser-x), var(--archive-teaser-y), 0)
-      rotateX(var(--archive-teaser-tilt))
+      translate3d(var(--archive-teaser-dx), var(--archive-teaser-dy), 0)
+      rotate(var(--archive-teaser-rot))
       scale(var(--archive-teaser-scale));
+  }
+
+  .railWrapSlide[data-hidden='false'] .archiveTeaser:hover .archiveTeaserCta {
+    transform: translate3d(-50%, -50%, 0);
   }
 
   .fullBleed,
@@ -1795,6 +1935,19 @@
   .shell--genie-flight .stageMediaSquircle {
     opacity: 1 !important;
     transform: none !important;
+  }
+
+  .shell--genie-flight .galleryStage {
+    filter: none !important;
+  }
+
+  .shell--genie-flight .galleryStageGenieVeil {
+    opacity: 0 !important;
+  }
+
+  .shell--genie-handoff-unwind .galleryStage {
+    animation: none !important;
+    filter: none !important;
   }
 
   .galleryStageLayer--back {

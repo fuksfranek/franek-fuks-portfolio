@@ -1,6 +1,9 @@
 import { easeViewInset } from './easeViewInset'
 import { loadDecodedImage } from './mediaPreload'
 
+/** Same factor as `--squircle-media-overscan` in index.css */
+const SQUIRCLE_MEDIA_OVERSCAN = 1.035
+
 export type RectSnapshot = {
   left: number
   top: number
@@ -20,15 +23,19 @@ export type GenieFlightHandle = {
 }
 
 export const GENIE_FLIGHT_TIMING = {
-  durationMs: 720,
-  coverDissolveEnd: 0.38,
-  stageRevealStart: 0.68,
-  stageRevealEnd: 0.86,
-  canvasFadeStart: 0.8,
-  maxMotionBlur: 1.15,
-  maxHandoffBlur: 0.7,
-  maxCoverDissolveBlur: 1.45,
+  durationMs: 820,
+  coverDissolveEnd: 0.54,
+  stageRevealStart: 0.56,
+  stageRevealEnd: 0.9,
+  canvasFadeStart: 0.9,
+  maxMotionBlur: 1.22,
+  maxHandoffBlur: 0.88,
+  maxCoverDissolveBlur: 2.55,
 } as const
+
+export function genieRailGapDelayMs(): number {
+  return Math.round(GENIE_FLIGHT_TIMING.durationMs * GENIE_FLIGHT_TIMING.stageRevealEnd)
+}
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value))
@@ -49,11 +56,16 @@ function coverCrop(image: HTMLImageElement, rect: RectSnapshot) {
   const scale = Math.max(rect.width / iw, rect.height / ih)
   const width = rect.width / scale
   const height = rect.height / scale
+  const sxBase = (iw - width) / 2
+  const syBase = (ih - height) / 2
+  const os = SQUIRCLE_MEDIA_OVERSCAN
+  const sw = width / os
+  const sh = height / os
   return {
-    sx: (iw - width) / 2,
-    sy: (ih - height) / 2,
-    sw: width,
-    sh: height,
+    sx: sxBase + (width - sw) / 2,
+    sy: syBase + (height - sh) / 2,
+    sw,
+    sh,
   }
 }
 
@@ -222,7 +234,10 @@ const fragmentSource = `
     vec2 revealUv = (u_revealCrop.xy + vec2(u, v) * u_revealCrop.zw) / u_revealSize;
 
     vec4 cover = sampleImage(u_cover, coverUv, u_coverSize, max(u_motionBlur, u_coverBlur));
-    vec4 reveal = sampleImage(u_reveal, revealUv, u_revealSize, u_motionBlur);
+    float midWeight = smoother((1.0 - u_coverAlpha) * u_coverAlpha * 4.0);
+    float dissolveMush = sin((1.0 - u_coverAlpha) * 3.14159265) * midWeight;
+    float revealBlurPx = u_motionBlur + u_coverBlur * dissolveMush * 1.38;
+    vec4 reveal = sampleImage(u_reveal, revealUv, u_revealSize, revealBlurPx);
     vec4 color = mix(cover, mix(reveal, cover, u_coverAlpha), u_hasReveal);
     color.a *= alpha * u_fade;
     gl_FragColor = color;
@@ -264,7 +279,7 @@ export function startGenieFlight({
   canvas: HTMLCanvasElement
   request: GenieFlightRequest
   radius: number
-  onStageProgress: (progress: number) => void
+  onStageProgress: (envelope: number, timelineRaw: number) => void
   onDone: () => void
 }): GenieFlightHandle {
   let cancelled = false
@@ -284,7 +299,7 @@ export function startGenieFlight({
   const finish = () => {
     if (cancelled) return
     cancelled = true
-    onStageProgress(1)
+    onStageProgress(1, 1)
     onDone()
   }
 
@@ -395,32 +410,32 @@ export function startGenieFlight({
       const minimizeProgress = 1 - progress
       const vertices = genieVertices(request.destination, request.source, minimizeProgress, 8)
       const currentBounds = boundsFromGenieVertices(vertices)
-      const stageProgress = smootherStep(
-        clamp01(
-          (rawProgress - GENIE_FLIGHT_TIMING.stageRevealStart) /
-            (GENIE_FLIGHT_TIMING.stageRevealEnd - GENIE_FLIGHT_TIMING.stageRevealStart),
-        ),
+      const stageRevealLinear = clamp01(
+        (rawProgress - GENIE_FLIGHT_TIMING.stageRevealStart) /
+          (GENIE_FLIGHT_TIMING.stageRevealEnd - GENIE_FLIGHT_TIMING.stageRevealStart),
       )
-      const fade =
-        rawProgress < GENIE_FLIGHT_TIMING.canvasFadeStart
-          ? 1
-          : 1 - smootherStep(
-              clamp01(
-                (rawProgress - GENIE_FLIGHT_TIMING.canvasFadeStart) /
-                  (1 - GENIE_FLIGHT_TIMING.canvasFadeStart),
-              ),
+      const stageProgress = smootherStep(smootherStep(stageRevealLinear))
+
+      const fadeTailT =
+        rawProgress >= GENIE_FLIGHT_TIMING.canvasFadeStart
+          ? clamp01(
+              (rawProgress - GENIE_FLIGHT_TIMING.canvasFadeStart) /
+                (1 - GENIE_FLIGHT_TIMING.canvasFadeStart),
             )
+          : 0
+      const fade =
+        rawProgress < GENIE_FLIGHT_TIMING.canvasFadeStart ? 1 : 1 - smootherStep(smootherStep(fadeTailT))
       const coverRevealProgress = clamp01(rawProgress / GENIE_FLIGHT_TIMING.coverDissolveEnd)
-      const coverAlpha = 1 - smootherStep(coverRevealProgress)
-      const handoffBlurIn = smootherStep(clamp01((rawProgress - 0.66) / 0.16))
-      const handoffBlurOut = 1 - smootherStep(clamp01((rawProgress - 0.9) / 0.1))
+      const coverAlpha = 1 - smootherStep(smootherStep(coverRevealProgress))
+      const handoffBlurIn = smootherStep(clamp01((rawProgress - 0.62) / 0.2))
+      const handoffBlurOut = 1 - smootherStep(clamp01((rawProgress - 0.88) / 0.12))
       const velocityBlur =
         Math.sin(rawProgress * Math.PI) * GENIE_FLIGHT_TIMING.maxMotionBlur +
         handoffBlurIn * handoffBlurOut * GENIE_FLIGHT_TIMING.maxHandoffBlur
-      const coverBlur = smootherStep(coverRevealProgress) * GENIE_FLIGHT_TIMING.maxCoverDissolveBlur
+      const coverBlur =
+        smootherStep(smootherStep(coverRevealProgress)) * GENIE_FLIGHT_TIMING.maxCoverDissolveBlur
 
-      onStageProgress(stageProgress)
-      gl.clear(gl.COLOR_BUFFER_BIT)
+      onStageProgress(stageProgress, rawProgress)
       gl.useProgram(program)
       gl.activeTexture(gl.TEXTURE0)
       gl.bindTexture(gl.TEXTURE_2D, coverTexture)
@@ -482,7 +497,7 @@ export function startGenieFlight({
 
     resizeCanvas?.()
     window.addEventListener('resize', resizeCanvas!)
-    onStageProgress(0)
+    onStageProgress(0, 0)
     draw(coverImage, revealImage, performance.now())
   })
 

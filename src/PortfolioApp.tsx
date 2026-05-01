@@ -23,12 +23,13 @@ import { ArchiveSheet } from './components/ArchiveSheet'
 import { ArchiveTeaser } from './components/ArchiveTeaser'
 import { easeViewInset } from './lib/easeViewInset'
 import {
-  GENIE_FLIGHT_TIMING,
+  genieRailGapDelayMs,
   startGenieFlight,
   type GenieFlightRequest,
   type RectSnapshot,
 } from './lib/genieFlight'
 import {
+  loadDecodedImage,
   preloadImage,
   preloadVideo,
   shouldAggressivelyPreloadVideo,
@@ -41,6 +42,109 @@ import './App.css'
 
 /** Matches `--project-media-radius` in index.css */
 const PROJECT_MEDIA_RADIUS = 20
+const GENIE_DOM_STAGE_BLUR_PX = 52
+const GENIE_DOM_BLUR_PLATEAU_UNTIL_RAW = 0.8
+const GENIE_HANDOFF_BLUR_TAIL_MS = 700
+
+function smootherStepDomBlur(t: number) {
+  const x = Math.max(0, Math.min(1, t))
+  return x * x * x * (x * (x * 6 - 15) + 10)
+}
+
+function domGalleryBlurPxForRawTimeline(raw: number): number {
+  const r = Math.max(0, Math.min(1, raw))
+  const plateau = GENIE_DOM_BLUR_PLATEAU_UNTIL_RAW
+  if (r <= plateau) return GENIE_DOM_STAGE_BLUR_PX
+  const falloffT = (r - plateau) / (1 - plateau)
+  return GENIE_DOM_STAGE_BLUR_PX * smootherStepDomBlur(1 - falloffT)
+}
+
+function genieSquircleDelightProgress(p: number) {
+  const x = Math.max(0, Math.min(1, p))
+  return smootherStepDomBlur(smootherStepDomBlur(x))
+}
+
+/** Parse `738ms` / `0.42s` from computed style tokens (fallback 0). */
+function cssTimeMs(value: string): number {
+  const v = value.trim()
+  const ms = /^([\d.]+)ms$/i.exec(v)
+  if (ms) return Number(ms[1])
+  const sec = /^([\d.]+)s$/i.exec(v)
+  if (sec) return Number(sec[1]) * 1000
+  const n = Number.parseFloat(v)
+  return Number.isFinite(n) ? n : 0
+}
+
+const RAIL_SWITCH_TIMING = {
+  scrollLeadInMs: 80,
+  scrollDurationMs: 440,
+  scrollRefineDurationMs: 220,
+} as const
+
+function easeOutCubic(t: number) {
+  const x = Math.max(0, Math.min(1, t))
+  return 1 - (1 - x) ** 3
+}
+
+function railScrollAnchorSlide(slides: HTMLElement[], toIndex: number, fromIndex: number): HTMLElement | null {
+  const n = slides.length
+  if (n === 0) return null
+  const dir = Math.sign(toIndex - fromIndex)
+  if (dir === 0) return slides.find((_, i) => i !== toIndex) ?? slides[0]
+
+  if (dir > 0) {
+    if (toIndex + 1 < n) return slides[toIndex + 1]
+    if (toIndex - 1 >= 0) return slides[toIndex - 1]
+  } else {
+    if (toIndex - 1 >= 0) return slides[toIndex - 1]
+    if (toIndex + 1 < n) return slides[toIndex + 1]
+  }
+  return slides.find((_, i) => i !== toIndex) ?? slides[0]
+}
+
+function railTargetScrollLeftForCenter(
+  rail: HTMLElement,
+  anchor: HTMLElement,
+  focusX: number,
+): number {
+  const r = anchor.getBoundingClientRect()
+  const delta = r.left + r.width / 2 - focusX
+  const maxScroll = Math.max(0, rail.scrollWidth - rail.clientWidth)
+  return Math.max(0, Math.min(rail.scrollLeft + delta, maxScroll))
+}
+
+function animateRailScrollTo(
+  rail: HTMLElement,
+  targetLeft: number,
+  durationMs: number,
+  reduceMotion: boolean,
+): () => void {
+  if (reduceMotion || durationMs <= 0) {
+    rail.scrollLeft = targetLeft
+    return () => {}
+  }
+  const start = rail.scrollLeft
+  const dx = targetLeft - start
+  if (Math.abs(dx) < 0.5) {
+    rail.scrollLeft = targetLeft
+    return () => {}
+  }
+  const t0 = performance.now()
+  let raf = 0
+  let cancelled = false
+  const tick = (now: number) => {
+    if (cancelled) return
+    const u = Math.min(1, (now - t0) / durationMs)
+    rail.scrollLeft = start + dx * easeOutCubic(u)
+    if (u < 1) raf = requestAnimationFrame(tick)
+  }
+  raf = requestAnimationFrame(tick)
+  return () => {
+    cancelled = true
+    cancelAnimationFrame(raf)
+  }
+}
+
 /** Matches `--duration-stage-info` — stage squircle + info layout only */
 const VIEW_RESIZE_MS = 320
 
@@ -127,7 +231,7 @@ function GenieProjectFlight({
 }: {
   flight: GenieFlight | null
   onDone: (id: number) => void
-  onStageProgress: (progress: number) => void
+  onStageProgress: (envelope: number, timelineRaw: number) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
@@ -199,6 +303,16 @@ const MediaView = forwardRef<
     onMediaDecoded?: () => void
   }
 >(function MediaView({ media, className, fit, variant = 'full', loop = true, onMediaDecoded }, ref) {
+  useEffect(() => {
+    if (variant !== 'thumb') return
+    if (media.kind === 'image') {
+      void loadDecodedImage(media.src)
+      return
+    }
+    const poster = media.poster
+    if (poster) void loadDecodedImage(poster)
+  }, [variant, media])
+
   /* Hook must run unconditionally; result is only consumed for full-variant videos. */
   const isFullVideo = media.kind === 'video' && variant === 'full'
   const blobSrc = useResolvedVideoSrc(media.kind === 'video' ? media.src : '', isFullVideo)
@@ -429,11 +543,15 @@ const GalleryStage = function GalleryStage({
   loop = true,
   onActiveElement,
   onMediaDecoded,
+  onFrontSlotCommitted,
+  showGenieContentVeil,
 }: {
   media: Media
   loop?: boolean
   onActiveElement?: (el: HTMLImageElement | HTMLVideoElement | null) => void
   onMediaDecoded?: () => void
+  onFrontSlotCommitted?: () => void
+  showGenieContentVeil?: boolean
 }) {
   const [slotA, setSlotA] = useState<Media | null>(media)
   const [slotB, setSlotB] = useState<Media | null>(null)
@@ -453,6 +571,13 @@ const GalleryStage = function GalleryStage({
     onActiveElement?.(node)
   }, [front, slotA, slotB, onActiveElement])
 
+  useLayoutEffect(() => {
+    if (!onFrontSlotCommitted) return
+    const cur = front === 'A' ? slotA : slotB
+    if (!cur || mediaIdentity(cur) !== mediaIdentity(media)) return
+    onFrontSlotCommitted()
+  }, [media, front, slotA, slotB, onFrontSlotCommitted])
+
   useEffect(() => {
     const currentMedia = front === 'A' ? slotA : slotB
     if (currentMedia && mediaIdentity(currentMedia) === mediaIdentity(media)) return
@@ -465,6 +590,7 @@ const GalleryStage = function GalleryStage({
     const reqId = ++reqIdRef.current
     const target: SlotId = front === 'A' ? 'B' : 'A'
     let cancelled = false
+
     queueMicrotask(() => {
       if (cancelled) return
       if (target === 'A') setSlotA(media)
@@ -488,16 +614,10 @@ const GalleryStage = function GalleryStage({
       onMediaDecoded?.()
     }
 
-    const probe = new Image()
-    probe.src = media.src
-    if (typeof probe.decode === 'function') {
-      probe.decode().then(promote, promote)
-    } else if (probe.complete) {
+    void loadDecodedImage(media.src).then(() => {
+      if (cancelled || reqId !== reqIdRef.current) return
       promote()
-    } else {
-      probe.onload = promote
-      probe.onerror = promote
-    }
+    })
 
     return () => {
       cancelled = true
@@ -525,6 +645,7 @@ const GalleryStage = function GalleryStage({
 
   return (
     <div className="galleryStage">
+      {showGenieContentVeil ? <div className="galleryStageGenieVeil" aria-hidden /> : null}
       <GalleryStageSlot
         ref={slotAElRef}
         media={slotA}
@@ -720,6 +841,8 @@ export default function PortfolioApp() {
     assetIndex: 0,
   })
   const [isInfoOpen, setIsInfoOpen] = useState(false)
+  /* Suppress elastic gap-width for one frame when opening detail; project switches use normal gap-fill. */
+  const [railElasticGapFill, setRailElasticGapFill] = useState(true)
   const [isAboutOpen, setIsAboutOpen] = useState(false)
   const [isCursorPressed, setIsCursorPressed] = useState(false)
   const [cursorUi, setCursorUi] = useState<CursorUiState>({
@@ -754,6 +877,9 @@ export default function PortfolioApp() {
   const projectInfoPanelRef = useRef<HTMLElement | null>(null)
   const railWrapRef = useRef<HTMLElement>(null)
   const railCarouselRef = useRef<BlossomCarouselHandle>(null)
+  const prevRailInfoOpenRef = useRef(false)
+  const prevRailProjectIndexRef = useRef(projectIndex)
+  const railScrollAnimCancelRef = useRef<(() => void) | null>(null)
   const aboutCloseCursorRef = useRef<HTMLDivElement | null>(null)
   const shellRef = useRef<HTMLDivElement>(null)
   const stageCornerRadiusRef = useRef(0)
@@ -762,7 +888,17 @@ export default function PortfolioApp() {
   const [archiveSheetMounted, setArchiveSheetMounted] = useState(false)
   const [shellSheetState, setShellSheetState] = useState<'idle' | 'pushed' | 'recovering'>('idle')
   const flightIdRef = useRef(0)
+  const stageRevealGateRef = useRef(true)
+  const lastGenieGalleryBlurPxRef = useRef(0)
   const [genieFlight, setGenieFlight] = useState<GenieFlight | null>(null)
+
+  useEffect(() => {
+    if (!genieFlight) stageRevealGateRef.current = true
+  }, [genieFlight])
+
+  const unlockGenieStageRevealGate = useCallback(() => {
+    stageRevealGateRef.current = true
+  }, [])
 
   const navigate = useNavigate()
   const location = useLocation()
@@ -817,6 +953,7 @@ export default function PortfolioApp() {
 
   const project = projects[projectIndex]
   const gallery = project.gallery
+  /* Stage shows gallery slides; rail cover may be a different crop than gallery[0]. */
   const asset = gallery[assetIndex] ?? null
   const hasGalleryAssets = gallery.length > 0
   const canStep = gallery.length > 1
@@ -872,7 +1009,7 @@ export default function PortfolioApp() {
 
     for (const entry of nextProject.gallery.slice(0, 2)) {
       const src = mediaPreviewSrc(entry)
-      if (src) preloadImage(src)
+      if (src && src !== coverSrc) preloadImage(src)
     }
   }, [])
 
@@ -883,7 +1020,10 @@ export default function PortfolioApp() {
       const destinationRect = stageWrapRef.current?.getBoundingClientRect()
       const nextProject = projects[nextIndex]
       const coverSrc = mediaPreviewSrc(nextProject.cover)
-      const revealSrc = nextProject.gallery[0] ? mediaPreviewSrc(nextProject.gallery[0]) : null
+      const firstGallery = nextProject.gallery[0]
+      const revealSrcRaw = firstGallery ? mediaPreviewSrc(firstGallery) : null
+      const coverAndRevealSame = Boolean(coverSrc && revealSrcRaw && coverSrc === revealSrcRaw)
+      const shaderRevealSrc = coverAndRevealSame ? null : revealSrcRaw
       const reducedMotion =
         typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -894,42 +1034,105 @@ export default function PortfolioApp() {
         coverSrc &&
         !reducedMotion
       ) {
+        stageRevealGateRef.current = false
         preloadImage(coverSrc)
-        if (revealSrc) preloadImage(revealSrc)
+        if (revealSrcRaw && revealSrcRaw !== coverSrc) preloadImage(revealSrcRaw)
+        if (!nextProject.gallery.length) {
+          queueMicrotask(() => {
+            stageRevealGateRef.current = true
+          })
+        }
+
         setGenieFlight({
           id: ++flightIdRef.current,
           coverSrc,
-          revealSrc,
+          revealSrc: shaderRevealSrc,
           source: snapshotRect(sourceRect),
           destination: snapshotRect(destinationRect),
         })
+      } else {
+        stageRevealGateRef.current = true
       }
 
       dispatch({ type: 'selectProject', index: nextIndex })
     },
-    [projectIndex],
+    [projectIndex, projects],
   )
 
   const finishGenieFlight = useCallback((id: number) => {
-    setGenieFlight((current) => (current?.id === id ? null : current))
+    const shell = shellRef.current
+    const reduceMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    const tailPx = reduceMotion
+      ? 0
+      : Math.max(
+          28,
+          lastGenieGalleryBlurPxRef.current > 6
+            ? lastGenieGalleryBlurPxRef.current
+            : Math.round(GENIE_DOM_STAGE_BLUR_PX * 0.55),
+        )
+
+    if (shell) {
+      shell.style.setProperty('--genie-stage-opacity', '1')
+      shell.style.setProperty('--genie-stage-scale', '1')
+      shell.style.setProperty('--genie-stage-blur', `${tailPx}px`)
+      shell.style.setProperty('--genie-stage-content-veil', '0')
+      shell.style.removeProperty('--genie-rail-gap-delay')
+      if (!reduceMotion) {
+        shell.style.setProperty('--genie-tail-blur-start', `${tailPx}px`)
+        shell.style.setProperty('--genie-handoff-blur-tail-ms', `${GENIE_HANDOFF_BLUR_TAIL_MS}ms`)
+      }
+    }
+    stageRevealGateRef.current = true
+
+    requestAnimationFrame(() => {
+      setGenieFlight((current) => (current?.id === id ? null : current))
+      if (!shell) return
+      shell.style.removeProperty('--genie-stage-opacity')
+      shell.style.removeProperty('--genie-stage-scale')
+      shell.style.removeProperty('--genie-stage-blur')
+      shell.style.removeProperty('--genie-stage-content-veil')
+      shell.style.removeProperty('--genie-handoff-blur-tail-ms')
+      if (!reduceMotion) {
+        shell.classList.add('shell--genie-handoff-unwind')
+        window.setTimeout(() => {
+          shell.classList.remove('shell--genie-handoff-unwind')
+          shell.style.removeProperty('--genie-tail-blur-start')
+        }, GENIE_HANDOFF_BLUR_TAIL_MS)
+      }
+    })
   }, [])
 
-  const updateGenieStageProgress = useCallback((progress: number) => {
+  const updateGenieStageProgress = useCallback((envelope: number, timelineRaw: number) => {
     const shell = shellRef.current
     if (!shell) return
-    const p = Math.max(0, Math.min(1, progress))
-    shell.style.setProperty('--genie-stage-opacity', String(0.01 + p * 0.99))
-    shell.style.setProperty('--genie-stage-scale', String(0.985 + p * 0.015))
-    shell.style.setProperty('--genie-stage-blur', `${((1 - p) * 3).toFixed(3)}px`)
+    const p = Math.max(0, Math.min(1, envelope))
+    const ep = genieSquircleDelightProgress(p)
+    const reduceMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const blurPx = reduceMotion ? 0 : domGalleryBlurPxForRawTimeline(timelineRaw)
+    lastGenieGalleryBlurPxRef.current = blurPx
+
+    const slotReady = stageRevealGateRef.current
+    const veilOpaque = !(slotReady || p >= 0.997) ? '1' : '0'
+
+    shell.style.setProperty('--genie-stage-opacity', String(0.004 + ep * 0.996))
+    shell.style.setProperty('--genie-stage-scale', String(0.978 + ep * 0.022))
+    shell.style.setProperty('--genie-stage-blur', `${blurPx.toFixed(3)}px`)
+    shell.style.setProperty('--genie-stage-content-veil', veilOpaque)
     shell.style.setProperty(
       '--genie-rail-gap-delay',
-      `${Math.round(GENIE_FLIGHT_TIMING.durationMs * GENIE_FLIGHT_TIMING.stageRevealEnd)}ms`,
+      `${genieRailGapDelayMs()}ms`,
     )
   }, [])
 
   const openInfo = useCallback(() => {
     infoWheelAcc.current = 0
     infoWheelAccY.current = 0
+    setRailElasticGapFill(false)
     setIsInfoOpen(true)
   }, [])
 
@@ -937,6 +1140,7 @@ export default function PortfolioApp() {
     infoWheelAcc.current = 0
     infoWheelAccY.current = 0
     setIsInfoOpen(false)
+    setRailElasticGapFill(true)
   }, [])
 
   const toggleAbout = useCallback(() => {
@@ -1044,31 +1248,114 @@ export default function PortfolioApp() {
   }, [cursorUi])
 
   useLayoutEffect(() => {
-    if (!isInfoOpen) return
+    if (!isInfoOpen || railElasticGapFill) return
+    let id1 = 0
+    let id2 = 0
+    id1 = requestAnimationFrame(() => {
+      id2 = requestAnimationFrame(() => {
+        setRailElasticGapFill(true)
+      })
+    })
+    return () => {
+      cancelAnimationFrame(id1)
+      cancelAnimationFrame(id2)
+    }
+  }, [isInfoOpen, railElasticGapFill])
+
+  useLayoutEffect(() => {
+    if (!isInfoOpen) {
+      prevRailInfoOpenRef.current = false
+      prevRailProjectIndexRef.current = projectIndex
+      railScrollAnimCancelRef.current?.()
+      railScrollAnimCancelRef.current = null
+      return
+    }
 
     const rail = railCarouselRef.current?.element
-    if (!rail) return
+    if (!rail) {
+      prevRailInfoOpenRef.current = isInfoOpen
+      prevRailProjectIndexRef.current = projectIndex
+      return
+    }
 
-    const railRect = rail.getBoundingClientRect()
-    const stageRect = stageWrapRef.current?.getBoundingClientRect()
-    const focusX = stageRect ? stageRect.left + stageRect.width / 2 : railRect.left + railRect.width / 2
-    const slides = Array.from(rail.children).filter((child): child is HTMLElement =>
-      child.matches('.card, .archiveTeaser'),
-    )
+    const fromIndex = prevRailProjectIndexRef.current
+    const projectChangedWhileOpen = prevRailInfoOpenRef.current && fromIndex !== projectIndex
 
-    slides
-      .map((slide, index) => {
-        const rect = slide.getBoundingClientRect()
-        return {
-          slide,
-          index,
-          distance: Math.abs(rect.left + rect.width / 2 - focusX),
-        }
-      })
-      .sort((a, b) => a.distance - b.distance || a.index - b.index)
-      .forEach(({ slide }, rank) => {
+    prevRailInfoOpenRef.current = true
+    prevRailProjectIndexRef.current = projectIndex
+
+    const reduceMotion =
+      typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    const getSlides = () =>
+      Array.from(rail.children).filter((child): child is HTMLElement =>
+        child.matches('.card, .archiveTeaser'),
+      )
+
+    const applyEnterRanks = () => {
+      const railRect = rail.getBoundingClientRect()
+      const stageRect = stageWrapRef.current?.getBoundingClientRect()
+      const focusX = stageRect ? stageRect.left + stageRect.width / 2 : railRect.left + railRect.width / 2
+      const slides = getSlides()
+      const ranked = slides
+        .map((slide, index) => {
+          const rect = slide.getBoundingClientRect()
+          return {
+            slide,
+            index,
+            distance: Math.abs(rect.left + rect.width / 2 - focusX),
+          }
+        })
+        .sort((a, b) => a.distance - b.distance || a.index - b.index)
+
+      ranked.forEach(({ slide }, rank) => {
         slide.style.setProperty('--rail-enter-rank', String(rank))
       })
+    }
+
+    const runDirectionalScroll = (switchFromIndex: number, durationMs: number) => {
+      const railRect = rail.getBoundingClientRect()
+      const stageRect = stageWrapRef.current?.getBoundingClientRect()
+      const focusX = stageRect ? stageRect.left + stageRect.width / 2 : railRect.left + railRect.width / 2
+      const slides = getSlides()
+      const anchor = railScrollAnchorSlide(slides, projectIndex, switchFromIndex)
+      if (!anchor) return
+      const targetLeft = railTargetScrollLeftForCenter(rail, anchor, focusX)
+      railScrollAnimCancelRef.current?.()
+      railScrollAnimCancelRef.current = animateRailScrollTo(rail, targetLeft, durationMs, reduceMotion)
+    }
+
+    if (projectChangedWhileOpen) {
+      applyEnterRanks()
+
+      const leadTimer = window.setTimeout(() => {
+        runDirectionalScroll(fromIndex, RAIL_SWITCH_TIMING.scrollDurationMs)
+      }, RAIL_SWITCH_TIMING.scrollLeadInMs)
+
+      const railWrap = rail.closest('.railWrap')
+      const railCs = getComputedStyle((railWrap ?? rail) as HTMLElement)
+      const gapDelayMs = cssTimeMs(railCs.getPropertyValue('--rail-gap-fill-delay'))
+      const gapDurMs = cssTimeMs(railCs.getPropertyValue('--rail-gap-fill-duration'))
+      const refineMs = gapDelayMs + gapDurMs
+      const refineTimer =
+        refineMs > 0
+          ? window.setTimeout(() => {
+              requestAnimationFrame(() => {
+                applyEnterRanks()
+                runDirectionalScroll(fromIndex, RAIL_SWITCH_TIMING.scrollRefineDurationMs)
+              })
+            }, refineMs)
+          : 0
+
+      return () => {
+        window.clearTimeout(leadTimer)
+        if (refineTimer !== 0) window.clearTimeout(refineTimer)
+        railScrollAnimCancelRef.current?.()
+        railScrollAnimCancelRef.current = null
+      }
+    }
+
+    applyEnterRanks()
   }, [isInfoOpen, projectIndex])
 
   useEffect(() => {
@@ -1730,6 +2017,8 @@ export default function PortfolioApp() {
                     loop={!canStep}
                     onActiveElement={handleActiveStageMedia}
                     onMediaDecoded={runChromeSample}
+                    onFrontSlotCommitted={genieFlight ? unlockGenieStageRevealGate : undefined}
+                    showGenieContentVeil={Boolean(genieFlight)}
                   />
                   <SquircleMediaStroke
                     cornerRadius={Math.max(0, stageCornerRadius)}
@@ -1857,7 +2146,7 @@ export default function PortfolioApp() {
       </aside>
 
       <footer
-        className="railWrap"
+        className={`railWrap${isInfoOpen && !railElasticGapFill ? ' railWrap--gapFillInstant' : ''}`}
         ref={railWrapRef}
         data-info-open={isInfoOpen}
       >
@@ -1896,8 +2185,8 @@ export default function PortfolioApp() {
                   tabIndex={open && isInfoOpen ? -1 : undefined}
                   onClick={(e) => {
                     e.currentTarget.blur()
-                    const thumb = e.currentTarget.querySelector<HTMLElement>('.thumb')
-                    selectProject(i, thumb ?? e.currentTarget)
+                    const thumbEl = e.currentTarget.querySelector<HTMLElement>('.thumb')
+                    selectProject(i, thumbEl ?? e.currentTarget)
                   }}
                   onPointerEnter={() => warmProjectPreview(i)}
                   onFocus={() => warmProjectPreview(i)}
@@ -1905,11 +2194,12 @@ export default function PortfolioApp() {
                   aria-current={open ? 'true' : undefined}
                   aria-label={`${p.label}, ${p.category}${open ? ', current project' : ''}`}
                 >
-                  <Squircle
-                    cornerRadius={PROJECT_MEDIA_RADIUS}
-                    cornerSmoothing={1}
-                    className="thumb"
-                  >
+                  <span className="cardThumbElevate">
+                    <Squircle
+                      cornerRadius={PROJECT_MEDIA_RADIUS}
+                      cornerSmoothing={1}
+                      className="thumb"
+                    >
                     <span className="thumbGalleryStack" aria-hidden>
                       {p.gallery.map((media, galleryIndex) => {
                         const src = mediaPreviewSrc(media)
@@ -1933,7 +2223,6 @@ export default function PortfolioApp() {
                       })}
                     </span>
                     <MediaView media={p.cover} fit="cover" className="thumbMedia" variant="thumb" />
-                    <SquircleMediaStroke cornerRadius={PROJECT_MEDIA_RADIUS} cornerSmoothing={1} />
                     <span className="cardSelectedIcon" aria-hidden>
                       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
                         <path
@@ -1976,7 +2265,8 @@ export default function PortfolioApp() {
                       <span className="cardLabelTitle">{p.label}</span>
                       <span className="cardLabelCategory">{p.category}</span>
                     </span>
-                  </Squircle>
+                    </Squircle>
+                  </span>
                 </button>
               )
             })}
