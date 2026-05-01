@@ -1164,13 +1164,18 @@
 }
 
 .archiveTeaser {
+  --archive-teaser-cover-scale: 0.85;
+  /* Center short cover vertically with sibling thumbs (same bottom baseline). */
+  --archive-teaser-stack-lift: calc(
+    (var(--archive-teaser-cover-scale) - 1) / 2 * var(--rail-thumb-h)
+  );
   --card-rest-scale: 0.95;
   flex: 0 0 auto;
   display: inline-flex;
   flex-direction: column;
   align-items: stretch;
   gap: 0;
-  width: calc(var(--rail-thumb-h) * 5 / 4);
+  width: calc(var(--rail-thumb-h) * 5 / 4 * var(--archive-teaser-cover-scale));
   margin-right: var(--rail-inter-card-gap);
   padding: 0;
   border: none;
@@ -1202,14 +1207,14 @@
 .archiveTeaserStack {
   position: relative;
   width: 100%;
-  height: var(--rail-thumb-h);
+  height: calc(var(--rail-thumb-h) * var(--archive-teaser-cover-scale));
   flex-shrink: 0;
   aspect-ratio: 5 / 4;
   overflow: visible;
   border-radius: var(--project-media-radius);
   background: transparent;
   box-shadow: none;
-  transform: translate3d(0, 0, 0) scale(1);
+  transform: translate3d(0, var(--archive-teaser-stack-lift), 0) scale(1);
   transform-origin: center center;
   transition: transform var(--rail-card-state-duration, 220ms) var(--rail-card-state-ease);
 }
@@ -1359,7 +1364,8 @@
 
 @media (hover: hover) and (pointer: fine) {
   .railWrapSlide[data-hidden='false'] .archiveTeaser:hover .archiveTeaserStack {
-    transform: translate3d(0, 0, 0) scale(var(--rail-card-hover-scale));
+    transform: translate3d(0, var(--archive-teaser-stack-lift), 0)
+      scale(var(--rail-card-hover-scale));
   }
 
   .railWrapSlide[data-hidden='false'] .archiveTeaser:hover .archiveTeaserCard {

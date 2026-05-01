@@ -64,88 +64,8 @@ function genieSquircleDelightProgress(p: number) {
   return smootherStepDomBlur(smootherStepDomBlur(x))
 }
 
-/** Parse `738ms` / `0.42s` from computed style tokens (fallback 0). */
-function cssTimeMs(value: string): number {
-  const v = value.trim()
-  const ms = /^([\d.]+)ms$/i.exec(v)
-  if (ms) return Number(ms[1])
-  const sec = /^([\d.]+)s$/i.exec(v)
-  if (sec) return Number(sec[1]) * 1000
-  const n = Number.parseFloat(v)
-  return Number.isFinite(n) ? n : 0
-}
 
-const RAIL_SWITCH_TIMING = {
-  scrollLeadInMs: 80,
-  scrollDurationMs: 440,
-  scrollRefineDurationMs: 220,
-} as const
 
-function easeOutCubic(t: number) {
-  const x = Math.max(0, Math.min(1, t))
-  return 1 - (1 - x) ** 3
-}
-
-function railScrollAnchorSlide(slides: HTMLElement[], toIndex: number, fromIndex: number): HTMLElement | null {
-  const n = slides.length
-  if (n === 0) return null
-  const dir = Math.sign(toIndex - fromIndex)
-  if (dir === 0) return slides.find((_, i) => i !== toIndex) ?? slides[0]
-
-  if (dir > 0) {
-    if (toIndex + 1 < n) return slides[toIndex + 1]
-    if (toIndex - 1 >= 0) return slides[toIndex - 1]
-  } else {
-    if (toIndex - 1 >= 0) return slides[toIndex - 1]
-    if (toIndex + 1 < n) return slides[toIndex + 1]
-  }
-  return slides.find((_, i) => i !== toIndex) ?? slides[0]
-}
-
-function railTargetScrollLeftForCenter(
-  rail: HTMLElement,
-  anchor: HTMLElement,
-  focusX: number,
-): number {
-  const r = anchor.getBoundingClientRect()
-  const delta = r.left + r.width / 2 - focusX
-  const maxScroll = Math.max(0, rail.scrollWidth - rail.clientWidth)
-  return Math.max(0, Math.min(rail.scrollLeft + delta, maxScroll))
-}
-
-function animateRailScrollTo(
-  rail: HTMLElement,
-  targetLeft: number,
-  durationMs: number,
-  reduceMotion: boolean,
-): () => void {
-  if (reduceMotion || durationMs <= 0) {
-    rail.scrollLeft = targetLeft
-    return () => {}
-  }
-  const start = rail.scrollLeft
-  const dx = targetLeft - start
-  if (Math.abs(dx) < 0.5) {
-    rail.scrollLeft = targetLeft
-    return () => {}
-  }
-  const t0 = performance.now()
-  let raf = 0
-  let cancelled = false
-  const tick = (now: number) => {
-    if (cancelled) return
-    const u = Math.min(1, (now - t0) / durationMs)
-    rail.scrollLeft = start + dx * easeOutCubic(u)
-    if (u < 1) raf = requestAnimationFrame(tick)
-  }
-  raf = requestAnimationFrame(tick)
-  return () => {
-    cancelled = true
-    cancelAnimationFrame(raf)
-  }
-}
-
-/** Matches `--duration-stage-info` — stage squircle + info layout only */
 const VIEW_RESIZE_MS = 320
 
 /** Prefer `\n\n` in copy; otherwise split after first “. ”; never force a mid-paragraph break */
@@ -877,9 +797,6 @@ export default function PortfolioApp() {
   const projectInfoPanelRef = useRef<HTMLElement | null>(null)
   const railWrapRef = useRef<HTMLElement>(null)
   const railCarouselRef = useRef<BlossomCarouselHandle>(null)
-  const prevRailInfoOpenRef = useRef(false)
-  const prevRailProjectIndexRef = useRef(projectIndex)
-  const railScrollAnimCancelRef = useRef<(() => void) | null>(null)
   const aboutCloseCursorRef = useRef<HTMLDivElement | null>(null)
   const shellRef = useRef<HTMLDivElement>(null)
   const stageCornerRadiusRef = useRef(0)
@@ -1263,99 +1180,32 @@ export default function PortfolioApp() {
   }, [isInfoOpen, railElasticGapFill])
 
   useLayoutEffect(() => {
-    if (!isInfoOpen) {
-      prevRailInfoOpenRef.current = false
-      prevRailProjectIndexRef.current = projectIndex
-      railScrollAnimCancelRef.current?.()
-      railScrollAnimCancelRef.current = null
-      return
-    }
+    if (!isInfoOpen) return
 
     const rail = railCarouselRef.current?.element
-    if (!rail) {
-      prevRailInfoOpenRef.current = isInfoOpen
-      prevRailProjectIndexRef.current = projectIndex
-      return
-    }
+    if (!rail) return
 
-    const fromIndex = prevRailProjectIndexRef.current
-    const projectChangedWhileOpen = prevRailInfoOpenRef.current && fromIndex !== projectIndex
+    const railRect = rail.getBoundingClientRect()
+    const stageRect = stageWrapRef.current?.getBoundingClientRect()
+    const focusX = stageRect ? stageRect.left + stageRect.width / 2 : railRect.left + railRect.width / 2
+    const slides = Array.from(rail.children).filter((child): child is HTMLElement =>
+      child.matches('.card, .archiveTeaser'),
+    )
 
-    prevRailInfoOpenRef.current = true
-    prevRailProjectIndexRef.current = projectIndex
-
-    const reduceMotion =
-      typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
-    const getSlides = () =>
-      Array.from(rail.children).filter((child): child is HTMLElement =>
-        child.matches('.card, .archiveTeaser'),
-      )
-
-    const applyEnterRanks = () => {
-      const railRect = rail.getBoundingClientRect()
-      const stageRect = stageWrapRef.current?.getBoundingClientRect()
-      const focusX = stageRect ? stageRect.left + stageRect.width / 2 : railRect.left + railRect.width / 2
-      const slides = getSlides()
-      const ranked = slides
-        .map((slide, index) => {
-          const rect = slide.getBoundingClientRect()
-          return {
-            slide,
-            index,
-            distance: Math.abs(rect.left + rect.width / 2 - focusX),
-          }
-        })
-        .sort((a, b) => a.distance - b.distance || a.index - b.index)
-
-      ranked.forEach(({ slide }, rank) => {
-        slide.style.setProperty('--rail-enter-rank', String(rank))
+    const ranked = slides
+      .map((slide, index) => {
+        const rect = slide.getBoundingClientRect()
+        return {
+          slide,
+          index,
+          distance: Math.abs(rect.left + rect.width / 2 - focusX),
+        }
       })
-    }
+      .sort((a, b) => a.distance - b.distance || a.index - b.index)
 
-    const runDirectionalScroll = (switchFromIndex: number, durationMs: number) => {
-      const railRect = rail.getBoundingClientRect()
-      const stageRect = stageWrapRef.current?.getBoundingClientRect()
-      const focusX = stageRect ? stageRect.left + stageRect.width / 2 : railRect.left + railRect.width / 2
-      const slides = getSlides()
-      const anchor = railScrollAnchorSlide(slides, projectIndex, switchFromIndex)
-      if (!anchor) return
-      const targetLeft = railTargetScrollLeftForCenter(rail, anchor, focusX)
-      railScrollAnimCancelRef.current?.()
-      railScrollAnimCancelRef.current = animateRailScrollTo(rail, targetLeft, durationMs, reduceMotion)
-    }
-
-    if (projectChangedWhileOpen) {
-      applyEnterRanks()
-
-      const leadTimer = window.setTimeout(() => {
-        runDirectionalScroll(fromIndex, RAIL_SWITCH_TIMING.scrollDurationMs)
-      }, RAIL_SWITCH_TIMING.scrollLeadInMs)
-
-      const railWrap = rail.closest('.railWrap')
-      const railCs = getComputedStyle((railWrap ?? rail) as HTMLElement)
-      const gapDelayMs = cssTimeMs(railCs.getPropertyValue('--rail-gap-fill-delay'))
-      const gapDurMs = cssTimeMs(railCs.getPropertyValue('--rail-gap-fill-duration'))
-      const refineMs = gapDelayMs + gapDurMs
-      const refineTimer =
-        refineMs > 0
-          ? window.setTimeout(() => {
-              requestAnimationFrame(() => {
-                applyEnterRanks()
-                runDirectionalScroll(fromIndex, RAIL_SWITCH_TIMING.scrollRefineDurationMs)
-              })
-            }, refineMs)
-          : 0
-
-      return () => {
-        window.clearTimeout(leadTimer)
-        if (refineTimer !== 0) window.clearTimeout(refineTimer)
-        railScrollAnimCancelRef.current?.()
-        railScrollAnimCancelRef.current = null
-      }
-    }
-
-    applyEnterRanks()
+    ranked.forEach(({ slide }, rank) => {
+      slide.style.setProperty('--rail-enter-rank', String(rank))
+    })
   }, [isInfoOpen, projectIndex])
 
   useEffect(() => {

@@ -184,9 +184,10 @@
   flex-direction: row;
   align-items: flex-start;
   gap: var(--space-6);
-  width: 100%;
+  /* Cards ~15% smaller than full bleed; centered in scroll area */
+  width: 85%;
   max-width: none;
-  margin: 0;
+  margin: 0 auto;
 }
 
 .archiveColumn {
