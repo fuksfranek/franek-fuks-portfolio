@@ -22,10 +22,10 @@ body.contentEditorBody {
   --editor-ease: cubic-bezier(0.16, 1, 0.3, 1);
   --editor-shadow:
     0 44px 18px rgba(16, 22, 31, 0),
-    0 28px 16px rgba(16, 22, 31, 0.012),
-    0 16px 14px rgba(16, 22, 31, 0.035),
-    0 7px 10px rgba(16, 22, 31, 0.055),
-    0 2px 5px rgba(16, 22, 31, 0.06);
+    0 28px 16px rgba(16, 22, 31, 0.008),
+    0 16px 14px rgba(16, 22, 31, 0.022),
+    0 7px 10px rgba(16, 22, 31, 0.038),
+    0 2px 5px rgba(16, 22, 31, 0.042);
   min-height: 100svh;
   padding: 24px;
   background: transparent;

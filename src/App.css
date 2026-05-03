@@ -131,17 +131,23 @@
   height: 100%;
 }
 
-/* True squircle clip for main project preview (info layout only); see App.tsx */
+/* Main project preview clip — radius animates in CSS when `.shell--info` toggles */
 .stageMediaSquircle {
   position: relative;
   width: 100%;
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  border-radius: 0;
   transform-origin: center center;
   transition:
     opacity 150ms ease,
-    transform 280ms var(--ease-genie-secondary, var(--ease-view-inset));
+    transform 280ms var(--ease-genie-secondary, var(--ease-view-inset)),
+    border-radius var(--duration-stage-info, 0.32s) var(--ease-view-inset);
+}
+
+.shell--info .stageMediaSquircle {
+  border-radius: var(--project-media-radius);
 }
 
 .shell--genie-flight .stageMediaSquircle {
@@ -150,7 +156,7 @@
   transition: none;
 }
 
-/* Blur on gallery stack only; `.stageMediaSquircle` stays sharp for stroke */
+/* Blur on gallery stack only; stage frame stroke stays sharp */
 .shell--genie-flight .galleryStage {
   filter: blur(var(--genie-stage-blur, 52px));
   transition: none;
@@ -177,17 +183,15 @@
   }
 }
 
-/* Squircle-aligned stroke: src/SquircleMediaStroke.tsx (same path as @squircle-js/react) */
+/* Inset hairline on rounded media — matches former SVG stroke; uses border-radius: inherit */
 
-.squircleMediaStroke {
+.mediaFrameStroke {
   position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 1;
-}
-
-.squircleMediaStrokeSvg {
-  display: block;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--media-frame-border);
 }
 
 .stageFill {
@@ -197,7 +201,7 @@
   pointer-events: none;
   user-select: none;
   object-position: center;
-  transform: scale(var(--squircle-media-overscan));
+  transform: scale(var(--media-clip-overscan));
   transform-origin: center center;
 }
 
@@ -208,7 +212,7 @@
    the back is fully ready, JS swaps the --front/--back classes and CSS
    crossfades both opacities in lockstep — see GalleryStage in PortfolioApp.tsx.
    Because the IMG/VIDEO elements never unmount, there is no fresh-element
-   paint gap, so the squircle background never shows through. */
+   paint gap at the rounded clip edge. */
 .galleryStage {
   position: relative;
   width: 100%;
@@ -297,7 +301,7 @@
   width: 100%;
   height: 100%;
   object-position: center;
-  transform: scale(var(--squircle-media-overscan));
+  transform: scale(var(--media-clip-overscan));
   transform-origin: center center;
 }
 
@@ -339,11 +343,11 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  /* Corners: @squircle-js/react Squircle (matches project cover cards) */
+  border-radius: var(--project-media-radius);
   filter:
-    drop-shadow(0 12px 12px rgba(16, 22, 31, 0.032))
-    drop-shadow(0 5px 7px rgba(16, 22, 31, 0.062))
-    drop-shadow(0 2px 3px rgba(16, 22, 31, 0.1));
+    drop-shadow(0 12px 14px rgba(16, 22, 31, 0.022))
+    drop-shadow(0 5px 8px rgba(16, 22, 31, 0.04))
+    drop-shadow(0 2px 3px rgba(16, 22, 31, 0.065));
   transition: filter var(--duration-stage-info, 0.32s) var(--ease-view-inset);
 }
 
@@ -372,7 +376,7 @@
 }
 
 .galleryStageLayer:not(.galleryStageLayer--shadowSoft) .galleryStageFrame {
-  filter: drop-shadow(0 1px 2px rgba(16, 22, 31, 0.08));
+  filter: drop-shadow(0 1px 3px rgba(16, 22, 31, 0.055));
 }
 
 .galleryStageLayer--front {
@@ -508,9 +512,9 @@
 }
 
 .shell--info .stageMediaWrap {
-  /* flex matches default .stageMediaWrap — squircle radius animates in JS */
+  /* flex matches default .stageMediaWrap */
   min-width: 0;
-  /* Squircle clip lives on .stageMediaSquircle; outer stays square so corners are not double-rounded */
+  /* Clip lives on .stageMediaSquircle; outer stays square until stage radius animates */
   border-radius: 0;
   box-shadow: none;
 }
@@ -1150,12 +1154,12 @@
 
 .rail::before {
   left: 0;
-  box-shadow: 34px 0 44px rgba(16, 22, 31, calc(var(--rail-edge-glow) * 0.14));
+  box-shadow: 34px 0 48px rgba(16, 22, 31, calc(var(--rail-edge-glow) * 0.095));
 }
 
 .rail::after {
   right: 0;
-  box-shadow: -34px 0 44px rgba(16, 22, 31, calc(var(--rail-edge-glow) * 0.14));
+  box-shadow: -34px 0 48px rgba(16, 22, 31, calc(var(--rail-edge-glow) * 0.095));
 }
 
 .rail[data-rubber-edge='start']::before,
@@ -1164,18 +1168,16 @@
 }
 
 .archiveTeaser {
-  --archive-teaser-cover-scale: 0.85;
-  /* Center short cover vertically with sibling thumbs (same bottom baseline). */
-  --archive-teaser-stack-lift: calc(
-    (var(--archive-teaser-cover-scale) - 1) / 2 * var(--rail-thumb-h)
-  );
   --card-rest-scale: 0.95;
+  position: relative;
   flex: 0 0 auto;
   display: inline-flex;
   flex-direction: column;
   align-items: stretch;
+  justify-content: center;
   gap: 0;
-  width: calc(var(--rail-thumb-h) * 5 / 4 * var(--archive-teaser-cover-scale));
+  width: calc(var(--rail-thumb-h) * 5 / 4);
+  min-height: var(--rail-thumb-h);
   margin-right: var(--rail-inter-card-gap);
   padding: 0;
   border: none;
@@ -1183,15 +1185,14 @@
   cursor: pointer;
   text-align: center;
   transform: translate3d(var(--rail-rubber-x), 0, 0) scale(var(--card-rest-scale));
-  transform-origin: center bottom;
+  transform-origin: center center;
   backface-visibility: hidden;
   transition:
     transform var(--rail-rubber-ms, 260ms) cubic-bezier(0.18, 1.38, 0.22, 1),
     opacity var(--duration-rail-card-hover, 0.22s) ease;
-  align-self: flex-end;
   box-sizing: border-box;
   font-size: 1rem;
-  vertical-align: bottom;
+  vertical-align: middle;
   white-space: normal;
 }
 
@@ -1207,14 +1208,10 @@
 .archiveTeaserStack {
   position: relative;
   width: 100%;
-  height: calc(var(--rail-thumb-h) * var(--archive-teaser-cover-scale));
+  height: var(--rail-thumb-h);
   flex-shrink: 0;
-  aspect-ratio: 5 / 4;
   overflow: visible;
-  border-radius: var(--project-media-radius);
-  background: transparent;
-  box-shadow: none;
-  transform: translate3d(0, var(--archive-teaser-stack-lift), 0) scale(1);
+  border-radius: var(--rail-project-card-radius);
   transform-origin: center center;
   transition: transform var(--rail-card-state-duration, 220ms) var(--rail-card-state-ease);
 }
@@ -1242,9 +1239,7 @@
   inset: 0;
   width: 100%;
   height: 100%;
-  border-radius: var(--project-media-radius);
-  overflow: hidden;
-  background: #d8d8d8;
+  border-radius: var(--rail-project-card-radius);
   box-shadow:
     var(--shadow-surface),
     0 0 0 1px rgba(255, 255, 255, 0.34);
@@ -1283,10 +1278,10 @@
   --archive-teaser-rot: -5deg;
   --archive-teaser-scale: 0.92;
   --archive-teaser-brightness: 0.72;
-  --archive-teaser-hover-dx: -4px;
-  --archive-teaser-hover-dy: 1px;
-  --archive-teaser-hover-rot: -7deg;
-  --archive-teaser-hover-scale: 0.9;
+  --archive-teaser-hover-dx: -9px;
+  --archive-teaser-hover-dy: 5px;
+  --archive-teaser-hover-rot: -8deg;
+  --archive-teaser-hover-scale: 0.88;
   --archive-teaser-hover-brightness: 0.68;
   z-index: 1;
 }
@@ -1297,10 +1292,10 @@
   --archive-teaser-rot: 7deg;
   --archive-teaser-scale: 0.95;
   --archive-teaser-brightness: 0.82;
-  --archive-teaser-hover-dx: 5px;
-  --archive-teaser-hover-dy: -3px;
-  --archive-teaser-hover-rot: 9deg;
-  --archive-teaser-hover-scale: 0.93;
+  --archive-teaser-hover-dx: 10px;
+  --archive-teaser-hover-dy: -6px;
+  --archive-teaser-hover-rot: 10deg;
+  --archive-teaser-hover-scale: 0.91;
   --archive-teaser-hover-brightness: 0.78;
   z-index: 2;
 }
@@ -1311,10 +1306,10 @@
   --archive-teaser-rot: -3deg;
   --archive-teaser-scale: 0.97;
   --archive-teaser-brightness: 0.9;
-  --archive-teaser-hover-dx: -3px;
-  --archive-teaser-hover-dy: -4px;
-  --archive-teaser-hover-rot: -5deg;
-  --archive-teaser-hover-scale: 0.95;
+  --archive-teaser-hover-dx: -7px;
+  --archive-teaser-hover-dy: -8px;
+  --archive-teaser-hover-rot: -6deg;
+  --archive-teaser-hover-scale: 0.93;
   --archive-teaser-hover-brightness: 0.86;
   z-index: 3;
 }
@@ -1324,9 +1319,9 @@
   --archive-teaser-dy: 1px;
   --archive-teaser-rot: 4deg;
   --archive-teaser-brightness: 1;
-  --archive-teaser-hover-dx: 3px;
-  --archive-teaser-hover-dy: 0px;
-  --archive-teaser-hover-rot: 6deg;
+  --archive-teaser-hover-dx: 8px;
+  --archive-teaser-hover-dy: 3px;
+  --archive-teaser-hover-rot: 7deg;
   --archive-teaser-hover-brightness: 1;
   z-index: 4;
 }
@@ -1344,8 +1339,8 @@
   border: 1px solid rgba(255, 255, 255, 0.22);
   background: rgba(12, 14, 18, 0.52);
   box-shadow:
-    0 2px 12px rgba(0, 0, 0, 0.18),
-    0 0 0 1px rgba(0, 0, 0, 0.06) inset;
+    0 2px 10px rgba(0, 0, 0, 0.12),
+    0 0 0 1px rgba(0, 0, 0, 0.04) inset;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   font-family: var(--font-ui);
@@ -1354,7 +1349,7 @@
   font-weight: 600;
   letter-spacing: -0.012em;
   color: #ffffff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
   white-space: nowrap;
   transition:
     transform 260ms cubic-bezier(0.16, 1, 0.3, 1),
@@ -1363,9 +1358,8 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .railWrapSlide[data-hidden='false'] .archiveTeaser:hover .archiveTeaserStack {
-    transform: translate3d(0, var(--archive-teaser-stack-lift), 0)
-      scale(var(--rail-card-hover-scale));
+  .railWrapSlide[data-hidden='false'] .archiveTeaser:hover {
+    z-index: 2;
   }
 
   .railWrapSlide[data-hidden='false'] .archiveTeaser:hover .archiveTeaserCard {
@@ -1460,13 +1454,15 @@
   outline-offset: 4px;
 }
 
-/* Squircle sets clip-path on .thumb — paint (incl. box-shadow) is clipped there; cast shadow from this shell. */
+/* Thumb media is clipped inside .thumb; shadow is cast from .cardThumbElevate.
+   `.thumb` must be block-level (it is a <span> in markup); inline boxes ignore
+   width/height, which broke fixed 5:4 rail cards after Squircle was removed. */
 .cardThumbElevate {
   display: block;
   width: 100%;
   overflow: visible;
   transform-origin: center center;
-  border-radius: var(--project-media-radius);
+  border-radius: var(--rail-project-card-radius);
   transition:
     transform var(--rail-thumb-transform-duration, 185ms) var(--ease-rail-thumb-transform),
     box-shadow var(--rail-thumb-transform-duration, 185ms) var(--ease-rail-thumb-transform);
@@ -1474,11 +1470,12 @@
 }
 
 .thumb {
-  height: var(--rail-thumb-h);
+  display: block;
+  box-sizing: border-box;
   width: 100%;
-  aspect-ratio: 5 / 4;
-  /* Corners: @squircle-js/react Squircle (matches --project-media-radius) */
+  height: var(--rail-thumb-h);
   border: none;
+  border-radius: var(--rail-project-card-radius);
   background: var(--thumb-bg);
   position: relative;
   overflow: hidden;
@@ -1513,7 +1510,7 @@
 
   .railWrapSlide[data-hidden='false'] .card:not(.card--open):hover .thumbMedia,
   .railWrapSlide[data-hidden='false'] .card:not(.card--open):hover .thumbGalleryLayer {
-    transform: scale(calc(var(--squircle-media-overscan) * var(--rail-cover-media-hover-boost, 1.022)));
+    transform: scale(calc(var(--media-clip-overscan) * var(--rail-cover-media-hover-boost, 1.022)));
   }
 
   .railWrapSlide[data-hidden='false'] .card:not(.card--open):hover:active .cardThumbElevate {
@@ -1548,7 +1545,7 @@
   object-fit: cover;
   object-position: center;
   opacity: 0;
-  transform: scale(var(--squircle-media-overscan));
+  transform: scale(var(--media-clip-overscan));
   transform-origin: center center;
   transition: transform var(--rail-thumb-transform-duration, 185ms) var(--ease-rail-thumb-transform);
 }
@@ -1564,7 +1561,7 @@
   position: relative;
   z-index: 1;
   object-position: center;
-  transform: scale(var(--squircle-media-overscan));
+  transform: scale(var(--media-clip-overscan));
   transform-origin: center center;
   transition:
     opacity var(--rail-card-state-duration, 220ms) ease,
@@ -1598,7 +1595,7 @@
   transition:
     opacity var(--rail-card-state-duration, 220ms) ease,
     transform var(--rail-card-state-duration, 220ms) var(--rail-card-state-ease);
-  filter: drop-shadow(0 1px 8px rgba(0, 0, 0, 0.28));
+  filter: drop-shadow(0 1px 6px rgba(0, 0, 0, 0.18));
   pointer-events: none;
 }
 

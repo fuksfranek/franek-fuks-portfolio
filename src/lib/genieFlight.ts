@@ -1,8 +1,8 @@
 import { easeViewInset } from './easeViewInset'
 import { loadDecodedImage } from './mediaPreload'
 
-/** Same factor as `--squircle-media-overscan` in index.css */
-const SQUIRCLE_MEDIA_OVERSCAN = 1.035
+/** Same factor as `--media-clip-overscan` in index.css */
+const MEDIA_CLIP_OVERSCAN = 1.035
 
 export type RectSnapshot = {
   left: number
@@ -58,7 +58,7 @@ function coverCrop(image: HTMLImageElement, rect: RectSnapshot) {
   const height = rect.height / scale
   const sxBase = (iw - width) / 2
   const syBase = (ih - height) / 2
-  const os = SQUIRCLE_MEDIA_OVERSCAN
+  const os = MEDIA_CLIP_OVERSCAN
   const sw = width / os
   const sh = height / os
   return {

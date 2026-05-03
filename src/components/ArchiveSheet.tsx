@@ -7,9 +7,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { Squircle } from '@squircle-js/react'
 import { ProjectInfoBody } from '../ProjectInfoBody'
-import { SquircleMediaStroke } from '../SquircleMediaStroke'
 import type { ArchiveItem } from '../data/archivePlaceholders'
 import { archiveAboveFoldCount, archiveItems } from '../data/archivePlaceholders'
 import type { ArchivePlainRect } from '../lib/archiveGeometry'
@@ -19,12 +17,6 @@ import '../ArchiveSheet.css'
 
 /* Match the JS column-count switch to the @media in ArchivePage.css. */
 const COLUMN_COUNT_MQ = '(min-width: 900px)'
-
-/* Squircle radius for archive cells — matches the existing .archiveCell border-radius
-   (kept on the outer button for hover-shadow shape); the Squircle wrapper applies
-   `cornerSmoothing: 1` so the clipped image reads as a true squircle, consistent with
-   the project thumbs and stage media in PortfolioApp. */
-const ARCHIVE_CELL_RADIUS = 14
 
 type DistributedCell = { item: ArchiveItem; originalIndex: number }
 
@@ -1081,9 +1073,7 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
                       aria-label={`Open archive item ${i + 1}`}
                       onClick={() => openLightbox(item, i)}
                     >
-                      <Squircle
-                        cornerRadius={ARCHIVE_CELL_RADIUS}
-                        cornerSmoothing={1}
+                      <span
                         className="archiveCellInner"
                         style={{ aspectRatio: `${item.aspectW} / ${item.aspectH}` }}
                       >
@@ -1120,11 +1110,8 @@ export function ArchiveSheet({ open, onRequestClose, onClosed }: ArchiveSheetPro
                             onLoad={(e) => e.currentTarget.classList.add('archiveCellImage--ready')}
                           />
                         )}
-                        <SquircleMediaStroke
-                          cornerRadius={ARCHIVE_CELL_RADIUS}
-                          cornerSmoothing={1}
-                        />
-                      </Squircle>
+                        <span className="mediaFrameStroke" aria-hidden />
+                      </span>
                     </button>
                   ))}
                 </div>

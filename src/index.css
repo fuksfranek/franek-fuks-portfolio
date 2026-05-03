@@ -22,59 +22,58 @@
   --icon-stroke: #10161f;
   /* Open rail thumb halo — matches page in light mode */
   --rail-open-thumb-ring: var(--page-bg);
-  /* Cover squircle anti-alias gaps: media slightly larger than clip (see .stageFill, .thumbMedia) */
-  --squircle-media-overscan: 1.035;
+  /* Slight media scale so rounded clips do not show hairline gaps (see .stageFill, .thumbMedia) */
+  --media-clip-overscan: 1.035;
   /* Inset ring on image frames (::after overlay — see App.css) */
   --media-frame-border: rgba(255, 255, 255, 0.1);
-  /* Layered/eased shadows inspired by Beautiful Shadows:
-     soft penumbra stacks instead of single hard drops. */
-  --shadow-ring-light: 0 0 0 1px rgba(16, 22, 31, 0.08);
-  --shadow-ring-on-dark: 0 0 0 1px rgba(255, 255, 255, 0.05);
+  /* Layered/eased shadows — softened (lower alpha, calmer stacks) */
+  --shadow-ring-light: 0 0 0 1px rgba(16, 22, 31, 0.055);
+  --shadow-ring-on-dark: 0 0 0 1px rgba(255, 255, 255, 0.035);
   --shadow-surface:
     0 38px 14px rgba(16, 22, 31, 0),
-    0 24px 13px rgba(16, 22, 31, 0.012),
-    0 14px 11px rgba(16, 22, 31, 0.036),
-    0 6px 8px rgba(16, 22, 31, 0.06),
-    0 2px 4px rgba(16, 22, 31, 0.072);
+    0 24px 13px rgba(16, 22, 31, 0.008),
+    0 14px 11px rgba(16, 22, 31, 0.024),
+    0 6px 8px rgba(16, 22, 31, 0.04),
+    0 2px 4px rgba(16, 22, 31, 0.048);
   --shadow-surface-hover:
     0 76px 22px rgba(16, 22, 31, 0),
-    0 48px 20px rgba(16, 22, 31, 0.016),
-    0 28px 18px rgba(16, 22, 31, 0.05),
-    0 14px 14px rgba(16, 22, 31, 0.092),
-    0 5px 9px rgba(16, 22, 31, 0.12);
+    0 48px 20px rgba(16, 22, 31, 0.011),
+    0 28px 18px rgba(16, 22, 31, 0.034),
+    0 14px 14px rgba(16, 22, 31, 0.062),
+    0 5px 9px rgba(16, 22, 31, 0.082);
   --shadow-dark-surface:
     0 56px 22px rgba(0, 0, 0, 0),
-    0 36px 20px rgba(0, 0, 0, 0.085),
-    0 20px 18px rgba(0, 0, 0, 0.17),
-    0 9px 12px rgba(0, 0, 0, 0.23),
-    0 3px 6px rgba(0, 0, 0, 0.28);
+    0 36px 20px rgba(0, 0, 0, 0.055),
+    0 20px 18px rgba(0, 0, 0, 0.11),
+    0 9px 12px rgba(0, 0, 0, 0.15),
+    0 3px 6px rgba(0, 0, 0, 0.185);
   --shadow-dark-surface-hover:
     0 76px 24px rgba(0, 0, 0, 0),
-    0 48px 22px rgba(0, 0, 0, 0.11),
-    0 28px 20px rgba(0, 0, 0, 0.22),
-    0 13px 14px rgba(0, 0, 0, 0.3),
-    0 4px 8px rgba(0, 0, 0, 0.36);
+    0 48px 22px rgba(0, 0, 0, 0.072),
+    0 28px 20px rgba(0, 0, 0, 0.14),
+    0 13px 14px rgba(0, 0, 0, 0.19),
+    0 4px 8px rgba(0, 0, 0, 0.24);
   --shadow-drawer:
     0 -64px 24px rgba(0, 0, 0, 0),
-    0 -40px 22px rgba(0, 0, 0, 0.024),
-    0 -22px 18px rgba(0, 0, 0, 0.05),
-    0 -10px 12px rgba(0, 0, 0, 0.072),
-    0 -3px 6px rgba(0, 0, 0, 0.086);
-  /* Layered rail card shadows — tuned for #10161f ink */
+    0 -40px 22px rgba(0, 0, 0, 0.016),
+    0 -22px 18px rgba(0, 0, 0, 0.034),
+    0 -10px 12px rgba(0, 0, 0, 0.048),
+    0 -3px 6px rgba(0, 0, 0, 0.058);
+  /* Rail card stacks — lighter contact + ambient */
   --shadow-rail-thumb-rest:
-    0 1px 2px rgba(16, 22, 31, 0.045),
-    0 3px 6px rgba(16, 22, 31, 0.042),
-    0 8px 16px rgba(16, 22, 31, 0.038),
-    0 16px 32px rgba(16, 22, 31, 0.03),
-    0 28px 48px rgba(16, 22, 31, 0.022);
+    0 1px 2px rgba(16, 22, 31, 0.028),
+    0 3px 6px rgba(16, 22, 31, 0.026),
+    0 8px 16px rgba(16, 22, 31, 0.024),
+    0 16px 32px rgba(16, 22, 31, 0.019),
+    0 28px 48px rgba(16, 22, 31, 0.014);
   --shadow-rail-thumb-hover:
-    0 1px 2px rgba(16, 22, 31, 0.1),
-    1px 3px 6px rgba(16, 22, 31, 0.12),
-    2px 8px 18px rgba(16, 22, 31, 0.1),
-    3px 16px 36px rgba(16, 22, 31, 0.085),
-    4px 28px 56px rgba(16, 22, 31, 0.065),
-    6px 44px 88px rgba(16, 22, 31, 0.048),
-    8px 64px 120px rgba(16, 22, 31, 0.032);
+    0 1px 2px rgba(16, 22, 31, 0.065),
+    1px 3px 6px rgba(16, 22, 31, 0.078),
+    2px 8px 18px rgba(16, 22, 31, 0.065),
+    3px 16px 36px rgba(16, 22, 31, 0.055),
+    4px 28px 56px rgba(16, 22, 31, 0.042),
+    6px 44px 88px rgba(16, 22, 31, 0.032),
+    8px 64px 120px rgba(16, 22, 31, 0.022);
   /* Named stacks only (no system-ui on macOS — measurement mismatch with canvas text APIs) */
   --font-ui: Inter, Helvetica, Arial, sans-serif;
   /* Base typography scale */
@@ -126,8 +125,10 @@
   --rail-thumb-h: clamp(10rem, 20vh, 18rem);
   /* Top headroom: hover scale + rail shadow stacks stay inside scrollport */
   --rail-hover-headroom: 5rem;
-  /* Stage (info) + rail project covers — same corner radius */
-  --project-media-radius: 20px;
+  /* Main stage + framed gallery — larger radius */
+  --project-media-radius: 30px;
+  /* Bottom rail project cards + archive teaser in the strip */
+  --rail-project-card-radius: 20px;
   /* Fixed top bar: matches .topBar padding + identity row (1rem × body line-height) */
   --top-bar-pad-y: var(--space-6);
   --top-bar-line-h: calc(1rem * var(--line-height));

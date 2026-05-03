@@ -260,10 +260,8 @@
   width: 100%;
   border-radius: inherit;
   overflow: hidden;
-  /* Hairline border around the squircle clip — same SquircleMediaStroke component
-     as project covers, but archive cells live on light surfaces (sheet/overlay
-     are white), so we override the default white-on-dark stroke with a subtle
-     dark hairline. */
+  /* Hairline inset on rounded clip — `.mediaFrameStroke` in App.css;
+     archive cells sit on light surfaces, so stroke is a dark hairline. */
   --media-frame-border: rgba(0, 0, 0, 0.08);
 }
 
@@ -273,8 +271,8 @@
   height: 100%;
   object-fit: cover;
   border-radius: inherit;
-  /* Cover squircle anti-alias gaps — see --squircle-media-overscan token. */
-  transform: scale(var(--squircle-media-overscan));
+  /* Cover anti-alias gaps — see `--media-clip-overscan` in index.css. */
+  transform: scale(var(--media-clip-overscan));
   transform-origin: center center;
   -webkit-user-drag: none;
   /* Hidden until decode lands — graceful fade in instead of a hard pop when bytes arrive late. */

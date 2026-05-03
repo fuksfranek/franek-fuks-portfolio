@@ -293,12 +293,12 @@
 
 .archiveSheet__content .archiveScroll::before {
   top: 0;
-  box-shadow: 0 24px 34px rgba(16, 22, 31, calc(var(--archive-edge-glow) * 0.08));
+  box-shadow: 0 24px 40px rgba(16, 22, 31, calc(var(--archive-edge-glow) * 0.055));
 }
 
 .archiveSheet__content .archiveScroll::after {
   bottom: 0;
-  box-shadow: 0 -24px 34px rgba(16, 22, 31, calc(var(--archive-edge-glow) * 0.08));
+  box-shadow: 0 -24px 40px rgba(16, 22, 31, calc(var(--archive-edge-glow) * 0.055));
 }
 
 .archiveSheet__content .archiveScroll[data-archive-rubber-edge='top']::before,

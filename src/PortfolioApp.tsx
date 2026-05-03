@@ -1,6 +1,5 @@
 import {
   forwardRef,
-  startTransition,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -16,12 +15,9 @@ import { BlossomCarousel, type BlossomCarouselHandle } from '@blossom-carousel/r
 import type { Media } from './data/projects'
 import { defaultProjectDescription, projects } from './data/projects'
 import { ProjectInfoBody } from './ProjectInfoBody'
-import { SquircleMediaStroke } from './SquircleMediaStroke'
 import gsap from 'gsap'
-import { Squircle } from '@squircle-js/react'
 import { ArchiveSheet } from './components/ArchiveSheet'
 import { ArchiveTeaser } from './components/ArchiveTeaser'
-import { easeViewInset } from './lib/easeViewInset'
 import {
   genieRailGapDelayMs,
   startGenieFlight,
@@ -41,7 +37,7 @@ import '@blossom-carousel/core/style.css'
 import './App.css'
 
 /** Matches `--project-media-radius` in index.css */
-const PROJECT_MEDIA_RADIUS = 20
+const PROJECT_MEDIA_RADIUS = 30
 const GENIE_DOM_STAGE_BLUR_PX = 52
 const GENIE_DOM_BLUR_PLATEAU_UNTIL_RAW = 0.8
 const GENIE_HANDOFF_BLUR_TAIL_MS = 700
@@ -59,7 +55,7 @@ function domGalleryBlurPxForRawTimeline(raw: number): number {
   return GENIE_DOM_STAGE_BLUR_PX * smootherStepDomBlur(1 - falloffT)
 }
 
-function genieSquircleDelightProgress(p: number) {
+function genieStageDelightProgress(p: number) {
   const x = Math.max(0, Math.min(1, p))
   return smootherStepDomBlur(smootherStepDomBlur(x))
 }
@@ -293,8 +289,7 @@ const MediaView = forwardRef<
  * crossfades both opacities in lockstep over GALLERY_FADE_MS.
  *
  * Because the IMG/VIDEO elements never unmount, there is no fresh-element
- * paint gap between the asset being chosen and the new pixels being on
- * screen — the user never sees the squircle background through a
+ * screen — the user never sees the stage background through a
  * transparent layer.
  *
  * Crossfade timing lives in App.css on `.galleryStageLayer`; JS doesn't need
@@ -377,11 +372,7 @@ const GalleryStageSlot = forwardRef<
         {mode === 'framed' ? <span className="galleryStageLayerBackground" aria-hidden /> : null}
         {mode === 'framed' ? (
           <span className="galleryStageFrameShell">
-            <Squircle
-              cornerRadius={PROJECT_MEDIA_RADIUS}
-              cornerSmoothing={1}
-              className="galleryStageFrame"
-            >
+            <span className="galleryStageFrame">
               <video
                 ref={setRefs as Ref<HTMLVideoElement>}
                 className={mediaClassName}
@@ -396,8 +387,8 @@ const GalleryStageSlot = forwardRef<
                 style={mediaStyle}
                 onLoadedData={onReady}
               />
-              <SquircleMediaStroke cornerRadius={PROJECT_MEDIA_RADIUS} cornerSmoothing={1} />
-            </Squircle>
+              <span className="mediaFrameStroke" aria-hidden />
+            </span>
           </span>
         ) : (
           <video
@@ -424,11 +415,7 @@ const GalleryStageSlot = forwardRef<
       {mode === 'framed' ? <span className="galleryStageLayerBackground" aria-hidden /> : null}
       {mode === 'framed' ? (
         <span className="galleryStageFrameShell">
-          <Squircle
-            cornerRadius={PROJECT_MEDIA_RADIUS}
-            cornerSmoothing={1}
-            className="galleryStageFrame"
-          >
+          <span className="galleryStageFrame">
             <img
               ref={setRefs as Ref<HTMLImageElement>}
               className={mediaClassName}
@@ -439,8 +426,8 @@ const GalleryStageSlot = forwardRef<
               style={mediaStyle}
               onLoad={onReady}
             />
-            <SquircleMediaStroke cornerRadius={PROJECT_MEDIA_RADIUS} cornerSmoothing={1} />
-          </Squircle>
+            <span className="mediaFrameStroke" aria-hidden />
+          </span>
         </span>
       ) : (
         <img
@@ -656,7 +643,7 @@ const CURSOR_HIDE_DISTANCE = 68
  *
  *      0ms   stage shows project asset; story meter cycles ~STORY_DURATION_MS
  *    220ms   info panel blocks + about lead ease in (GSAP)
- *    320ms   squircle radius + info layout settle together (VIEW_RESIZE_MS)
+ *    320ms   stage corner radius + info layout settle together (VIEW_RESIZE_MS)
  *
  * About overlay:
  *      0ms   FLIP: mark translates + scales from header `.identity` (ease-out, GPU)
@@ -799,9 +786,6 @@ export default function PortfolioApp() {
   const railCarouselRef = useRef<BlossomCarouselHandle>(null)
   const aboutCloseCursorRef = useRef<HTMLDivElement | null>(null)
   const shellRef = useRef<HTMLDivElement>(null)
-  const stageCornerRadiusRef = useRef(0)
-  const stageCornerRafRef = useRef<number | null>(null)
-  const [stageCornerRadius, setStageCornerRadius] = useState(0)
   const [archiveSheetMounted, setArchiveSheetMounted] = useState(false)
   const [shellSheetState, setShellSheetState] = useState<'idle' | 'pushed' | 'recovering'>('idle')
   const flightIdRef = useRef(0)
@@ -1026,7 +1010,7 @@ export default function PortfolioApp() {
     const shell = shellRef.current
     if (!shell) return
     const p = Math.max(0, Math.min(1, envelope))
-    const ep = genieSquircleDelightProgress(p)
+    const ep = genieStageDelightProgress(p)
     const reduceMotion =
       typeof window !== 'undefined' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -1100,64 +1084,6 @@ export default function PortfolioApp() {
 
   useEffect(() => {
     isInfoOpenRef.current = isInfoOpen
-  }, [isInfoOpen])
-
-  /** Animate stage squircle radius with layout (clip-path can’t transition in CSS) */
-  useEffect(() => {
-    const target = isInfoOpen ? PROJECT_MEDIA_RADIUS : 0
-    const from = stageCornerRadiusRef.current
-
-    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      if (stageCornerRafRef.current !== null) {
-        cancelAnimationFrame(stageCornerRafRef.current)
-        stageCornerRafRef.current = null
-      }
-      stageCornerRadiusRef.current = target
-      startTransition(() => {
-        setStageCornerRadius(target)
-      })
-      return
-    }
-
-    if (stageCornerRafRef.current !== null) {
-      cancelAnimationFrame(stageCornerRafRef.current)
-      stageCornerRafRef.current = null
-    }
-
-    if (Math.abs(from - target) < 0.001) {
-      stageCornerRadiusRef.current = target
-      startTransition(() => {
-        setStageCornerRadius(target)
-      })
-      return
-    }
-
-    const start = performance.now()
-
-    const tick = (now: number) => {
-      const elapsed = now - start
-      const t = Math.min(1, elapsed / VIEW_RESIZE_MS)
-      const eased = easeViewInset(t)
-      const v = from + (target - from) * eased
-      stageCornerRadiusRef.current = v
-      setStageCornerRadius(v)
-      if (t < 1) {
-        stageCornerRafRef.current = requestAnimationFrame(tick)
-      } else {
-        stageCornerRafRef.current = null
-        stageCornerRadiusRef.current = target
-        setStageCornerRadius(target)
-      }
-    }
-
-    stageCornerRafRef.current = requestAnimationFrame(tick)
-
-    return () => {
-      if (stageCornerRafRef.current !== null) {
-        cancelAnimationFrame(stageCornerRafRef.current)
-        stageCornerRafRef.current = null
-      }
-    }
   }, [isInfoOpen])
 
   useEffect(() => {
@@ -1857,11 +1783,7 @@ export default function PortfolioApp() {
           >
             <div className="stageMedia">
               {asset ? (
-                <Squircle
-                  cornerRadius={Math.max(0, stageCornerRadius)}
-                  cornerSmoothing={stageCornerRadius > 0.5 ? 1 : 0}
-                  className="stageMediaSquircle"
-                >
+                <div className="stageMediaSquircle">
                   <GalleryStage
                     media={asset}
                     loop={!canStep}
@@ -1870,23 +1792,13 @@ export default function PortfolioApp() {
                     onFrontSlotCommitted={genieFlight ? unlockGenieStageRevealGate : undefined}
                     showGenieContentVeil={Boolean(genieFlight)}
                   />
-                  <SquircleMediaStroke
-                    cornerRadius={Math.max(0, stageCornerRadius)}
-                    cornerSmoothing={stageCornerRadius > 0.5 ? 1 : 0}
-                  />
-                </Squircle>
+                  <span className="mediaFrameStroke" aria-hidden />
+                </div>
               ) : (
-                <Squircle
-                  cornerRadius={Math.max(0, stageCornerRadius)}
-                  cornerSmoothing={stageCornerRadius > 0.5 ? 1 : 0}
-                  className="stageMediaSquircle"
-                >
+                <div className="stageMediaSquircle">
                   <div className="galleryStageEmpty" role="img" aria-label={`${project.label} placeholder`} />
-                  <SquircleMediaStroke
-                    cornerRadius={Math.max(0, stageCornerRadius)}
-                    cornerSmoothing={stageCornerRadius > 0.5 ? 1 : 0}
-                  />
-                </Squircle>
+                  <span className="mediaFrameStroke" aria-hidden />
+                </div>
               )}
               <div className="storyMeter" aria-hidden>
                 {gallery.map((slot, i) => {
@@ -2045,12 +1957,8 @@ export default function PortfolioApp() {
                   aria-label={`${p.label}, ${p.category}${open ? ', current project' : ''}`}
                 >
                   <span className="cardThumbElevate">
-                    <Squircle
-                      cornerRadius={PROJECT_MEDIA_RADIUS}
-                      cornerSmoothing={1}
-                      className="thumb"
-                    >
-                    <span className="thumbGalleryStack" aria-hidden>
+                    <span className="thumb">
+                      <span className="thumbGalleryStack" aria-hidden>
                       {p.gallery.map((media, galleryIndex) => {
                         const src = mediaPreviewSrc(media)
                         if (!src) return null
@@ -2071,9 +1979,9 @@ export default function PortfolioApp() {
                           />
                         )
                       })}
-                    </span>
-                    <MediaView media={p.cover} fit="cover" className="thumbMedia" variant="thumb" />
-                    <span className="cardSelectedIcon" aria-hidden>
+                      </span>
+                      <MediaView media={p.cover} fit="cover" className="thumbMedia" variant="thumb" />
+                      <span className="cardSelectedIcon" aria-hidden>
                       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
                         <path
                           d="M3 13C6.6 5 17.4 5 21 13"
@@ -2092,8 +2000,8 @@ export default function PortfolioApp() {
                         />
                       </svg>
                       <span className="cardSelectedText">viewing now</span>
-                    </span>
-                    <span className="cardHoverIcon" aria-hidden>
+                      </span>
+                      <span className="cardHoverIcon" aria-hidden>
                       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
                         <path
                           d="M17 8L12 3L7 8"
@@ -2111,11 +2019,11 @@ export default function PortfolioApp() {
                         />
                       </svg>
                     </span>
-                    <span className="cardLabel">
-                      <span className="cardLabelTitle">{p.label}</span>
-                      <span className="cardLabelCategory">{p.category}</span>
+                      <span className="cardLabel">
+                        <span className="cardLabelTitle">{p.label}</span>
+                        <span className="cardLabelCategory">{p.category}</span>
+                      </span>
                     </span>
-                    </Squircle>
                   </span>
                 </button>
               )
